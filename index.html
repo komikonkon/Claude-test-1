@@ -294,7 +294,7 @@
               <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition">${formatDate(date)}</div>
               <div class="text-xs text-gray-400 mt-0.5">＋ 追加</div>
             </div>
-            <button onclick="deleteColumn('${date}', event)" class="text-gray-300 hover:text-red-500 transition text-xs mt-0.5 cursor-pointer" title="この列を削除">✕</button>
+            <button onclick="deleteColumn('${date}', event)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition text-sm cursor-pointer leading-none" title="この列を削除">✕</button>
           </div>
           <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
         </th>`).join('');
