@@ -286,6 +286,13 @@
       return `<span class="inline-block text-xs px-2 py-0.5 rounded-full font-medium ${colors[cat] || ''} mb-1">${cat}</span>`;
     }
 
+    function dayBg(dateStr) {
+      const dow = new Date(dateStr + 'T12:00:00').getDay();
+      if (dow === 6) return 'bg-indigo-50';
+      if (dow === 0) return 'bg-red-50';
+      return '';
+    }
+
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -322,7 +329,7 @@
       const maxRows = Math.max(1, ...groups.map(([, evs]) => evs.length));
 
       const headerCells = groups.map(([date,], i) => `
-        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 cursor-pointer select-none group" onclick="selectDate('${date}')">
+        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 cursor-pointer select-none group ${dayBg(date)}" onclick="selectDate('${date}')">
           <div class="flex items-start justify-between no-print">
             <div>
               <div class="text-xs font-bold text-blue-600 mb-1">${i + 1}日目</div>
@@ -335,12 +342,12 @@
         </th>`).join('');
 
       const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
-        const cells = groups.map(([, evs]) => {
+        const cells = groups.map(([date, evs]) => {
           const e = evs[rowIndex];
-          if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3"></td>`;
-          const highlight = e.id === editingId ? 'bg-blue-50' : '';
+          const colBg = e && e.id === editingId ? 'bg-blue-50' : dayBg(date);
+          if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3 ${colBg}"></td>`;
           return `
-            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${highlight}">
+            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg}">
               <div class="flex items-start justify-between gap-2">
                 <div>
                   ${categoryBadge(e.time)}
