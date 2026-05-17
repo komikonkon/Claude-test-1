@@ -23,12 +23,19 @@
       </div>
     </div>
 
-    <!-- Trip title -->
+    <!-- Trip title & date range -->
     <div class="bg-white rounded-xl shadow p-4 mb-4 no-print">
       <label class="block text-sm font-medium text-gray-600 mb-1">旅行タイトル</label>
       <input id="tripTitle" type="text" placeholder="例: 京都・大阪 3泊4日"
-        class="w-full border border-gray-300 rounded px-3 py-2 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400 mb-3"
         oninput="saveTripTitle()" />
+      <label class="block text-sm font-medium text-gray-600 mb-1">旅行期間</label>
+      <div class="flex items-center gap-2">
+        <input id="dateFrom" type="date" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" onchange="saveDateRange()" />
+        <span class="text-gray-400 text-sm">〜</span>
+        <input id="dateTo" type="date" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" onchange="saveDateRange()" />
+        <button onclick="clearDateRange()" class="text-xs text-gray-400 hover:text-gray-600 underline ml-1">クリア</button>
+      </div>
     </div>
 
     <!-- Print title (shown only when printing) -->
@@ -82,9 +89,9 @@
 
     function load() {
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', events: [] };
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', dateFrom: '', dateTo: '', events: [] };
       } catch {
-        return { title: '', events: [] };
+        return { title: '', dateFrom: '', dateTo: '', events: [] };
       }
     }
 
@@ -96,6 +103,34 @@
       data.title = document.getElementById('tripTitle').value;
       document.getElementById('printTitle').textContent = data.title;
       save();
+    }
+
+    function saveDateRange() {
+      const from = document.getElementById('dateFrom').value;
+      const to = document.getElementById('dateTo').value;
+      if (from && to && from > to) return;
+      data.dateFrom = from;
+      data.dateTo = to;
+      save();
+      render();
+    }
+
+    function clearDateRange() {
+      data.dateFrom = '';
+      data.dateTo = '';
+      document.getElementById('dateFrom').value = '';
+      document.getElementById('dateTo').value = '';
+      save();
+      render();
+    }
+
+    function getDatesInRange(from, to) {
+      const dates = [];
+      const end = new Date(to + 'T00:00:00');
+      for (let d = new Date(from + 'T00:00:00'); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().split('T')[0]);
+      }
+      return dates;
     }
 
     function selectCategory(cat) {
@@ -202,16 +237,30 @@
     function render() {
       const container = document.getElementById('itinerary');
 
-      if (data.events.length === 0) {
+      // Build the set of dates to show as columns
+      let allDates = [];
+      if (data.dateFrom && data.dateTo) {
+        allDates = getDatesInRange(data.dateFrom, data.dateTo);
+        // Also include dates from events that are outside the range
+        for (const e of data.events) {
+          if (!allDates.includes(e.date)) allDates.push(e.date);
+        }
+        allDates.sort();
+      } else {
+        allDates = [...new Set(data.events.map(e => e.date))].sort();
+      }
+
+      if (allDates.length === 0) {
         container.innerHTML = `
           <div class="text-center text-gray-400 py-16">
             <div class="text-5xl mb-3">✈️</div>
-            <p class="text-lg">イベントがまだありません。上のフォームから追加してください。</p>
+            <p class="text-lg">旅行期間を設定するか、上のフォームからイベントを追加してください。</p>
           </div>`;
         return;
       }
 
-      const groups = groupByDate(data.events);
+      const eventMap = groupByDate(data.events);
+      const groups = allDates.map(date => [date, eventMap[date] || []]);
       const maxRows = Math.max(...groups.map(([, events]) => events.length));
 
       const headerCells = groups.map(([date, ], i) => `
@@ -260,6 +309,8 @@
     // Initialize
     document.getElementById('tripTitle').value = data.title;
     document.getElementById('printTitle').textContent = data.title;
+    document.getElementById('dateFrom').value = data.dateFrom || '';
+    document.getElementById('dateTo').value = data.dateTo || '';
     render();
   </script>
 </body>
