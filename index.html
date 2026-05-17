@@ -10,6 +10,10 @@
       .no-print { display: none !important; }
       body { background: white; }
     }
+    .print-only { display: none; }
+    @media print {
+      .print-only { display: block; }
+    }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4">
@@ -184,6 +188,13 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    function selectDate(date) {
+      cancelEdit();
+      document.getElementById('eventDate').value = date;
+      document.getElementById('eventDesc').focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function cancelEdit() {
       editingId = null;
       document.getElementById('eventDate').value = '';
@@ -264,9 +275,11 @@
       const maxRows = Math.max(...groups.map(([, events]) => events.length));
 
       const headerCells = groups.map(([date, ], i) => `
-        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0">
+        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 no-print:cursor-pointer group" onclick="selectDate('${date}')">
           <div class="text-xs font-bold text-blue-600 mb-1 no-print">${dayLabel(i)}</div>
-          <div class="text-sm font-bold text-gray-700">${formatDate(date)}</div>
+          <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition no-print">${formatDate(date)}</div>
+          <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
+          <div class="text-xs text-gray-400 mt-0.5 no-print">＋ 追加</div>
         </th>`).join('');
 
       const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
