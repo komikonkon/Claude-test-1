@@ -275,7 +275,7 @@
       const maxRows = Math.max(...groups.map(([, events]) => events.length));
 
       const headerCells = groups.map(([date, ], i) => `
-        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 no-print:cursor-pointer group" onclick="selectDate('${date}')">
+        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 cursor-pointer select-none group" onclick="selectDate('${date}')">
           <div class="text-xs font-bold text-blue-600 mb-1 no-print">${dayLabel(i)}</div>
           <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition no-print">${formatDate(date)}</div>
           <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
