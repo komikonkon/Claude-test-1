@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>旅程表</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; }
+    }
+    .print-only { display: none; }
+    @media print {
+      .print-only { display: block; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: Auth (login / signup)
+═══════════════════════════════════════════════════ -->
+<div id="screen-auth" class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
+    <h1 class="text-2xl font-bold text-gray-800 mb-1 text-center">旅程表</h1>
+    <p class="text-sm text-gray-400 text-center mb-6">旅のすべてを、ひとつの表に。</p>
+
+    <div id="auth-error" class="hidden mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+
+    <div class="mb-4">
+      <label class="block text-xs font-medium text-gray-600 mb-1">メールアドレス</label>
+      <input id="auth-email" type="email" placeholder="you@example.com"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        onkeydown="if(event.key==='Enter') authSubmit()" />
+    </div>
+    <div class="mb-6">
+      <label class="block text-xs font-medium text-gray-600 mb-1">パスワード</label>
+      <input id="auth-password" type="password" placeholder="6文字以上"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        onkeydown="if(event.key==='Enter') authSubmit()" />
+    </div>
+
+    <button onclick="authSubmit()" id="auth-btn"
+      class="w-full py-2 bg-blue-600 text-white rounded font-medium text-sm hover:bg-blue-700 transition mb-3">
+      ログイン
+    </button>
+    <button onclick="toggleAuthMode()"
+      class="w-full py-2 bg-gray-100 text-gray-600 rounded text-sm hover:bg-gray-200 transition">
+      <span id="auth-toggle-label">アカウント作成に切り替え</span>
+    </button>
+    <p id="auth-mode-hint" class="text-center text-xs text-gray-400 mt-3">ログインモード</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: Trip list
+═══════════════════════════════════════════════════ -->
+<div id="screen-trips" class="hidden min-h-screen p-4">
+  <div class="max-w-2xl mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-800">旅程表</h1>
+      <div class="flex items-center gap-2">
+        <span id="user-email-label" class="text-xs text-gray-400 hidden sm:block"></span>
+        <button onclick="logout()" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">ログアウト</button>
+      </div>
+    </div>
+
+    <!-- New trip form -->
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <h2 class="text-sm font-semibold text-gray-600 mb-3">新しい旅を作成</h2>
+      <div class="flex gap-2">
+        <input id="new-trip-title" type="text" placeholder="例: 京都・大阪 3泊4日"
+          class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          onkeydown="if(event.key==='Enter') createTrip()" />
+        <button onclick="createTrip()" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition font-medium">作成</button>
+      </div>
+    </div>
+
+    <!-- Trip list -->
+    <div id="trip-list-error" class="hidden mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+    <div id="trip-list" class="space-y-2">
+      <div class="text-center text-gray-400 py-8 text-sm">読み込み中…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: Trip detail
+═══════════════════════════════════════════════════ -->
+<div id="screen-detail" class="hidden min-h-screen p-4">
+  <div class="max-w-5xl mx-auto">
+
+    <!-- Top bar -->
+    <div class="flex items-center justify-between mb-4 no-print">
+      <button onclick="goToTrips()" class="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition">
+        ← 旅一覧
+      </button>
+      <div class="flex gap-2">
+        <button onclick="openShareModal()" class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition">共有</button>
+        <button onclick="window.print()" class="px-3 py-1.5 text-sm bg-gray-800 text-white rounded hover:bg-gray-700 transition">印刷 / PDF</button>
+        <button onclick="deleteTrip()" class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition">削除</button>
+      </div>
+    </div>
+
+    <!-- Trip title & date range -->
+    <div class="bg-white rounded-xl shadow p-4 mb-4 no-print">
+      <label class="block text-sm font-medium text-gray-600 mb-1">旅行タイトル</label>
+      <input id="tripTitle" type="text" placeholder="例: 京都・大阪 3泊4日"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400 mb-3"
+        oninput="saveTripTitle()" />
+      <label class="block text-sm font-medium text-gray-600 mb-1">旅行期間</label>
+      <div class="flex items-center gap-2">
+        <input id="dateFrom" type="date" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" onchange="saveDateRange()" />
+        <span class="text-gray-400 text-sm">〜</span>
+        <input id="dateTo" type="date" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" onchange="saveDateRange()" />
+        <button onclick="clearDateRange()" class="text-xs text-gray-400 hover:text-gray-600 underline ml-1">クリア</button>
+      </div>
+    </div>
+
+    <!-- Read-only banner for view-only shared trips -->
+    <div id="readonly-banner" class="hidden bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-4 py-2 mb-4 no-print">
+      このプランは閲覧のみです（編集権限がありません）。
+    </div>
+
+    <!-- Print title -->
+    <div class="print-only text-2xl font-bold text-center mb-4" id="printTitle"></div>
+
+    <!-- Add / Edit event form -->
+    <div id="event-form-wrapper" class="bg-white rounded-xl shadow p-4 mb-6 no-print">
+      <div class="flex items-center justify-between mb-3">
+        <h2 id="formTitle" class="text-lg font-semibold text-gray-700">イベント追加</h2>
+        <button id="cancelBtn" onclick="cancelEdit()" class="hidden text-sm text-gray-500 hover:text-gray-700 underline">キャンセル</button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">日付</label>
+          <input id="eventDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">時間帯（任意）</label>
+          <div class="flex gap-1">
+            <button onclick="selectCategory('午前')" id="cat-午前"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午前</button>
+            <button onclick="selectCategory('午後')" id="cat-午後"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午後</button>
+            <button onclick="selectCategory('夜')" id="cat-夜"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">夜</button>
+          </div>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-gray-500 mb-1">内容</label>
+          <input id="eventDesc" type="text" placeholder="例: 東京駅 出発（新幹線）"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            onkeydown="if(event.key==='Enter') addEvent()" />
+        </div>
+      </div>
+      <div class="flex justify-end mt-3">
+        <button id="submitBtn" onclick="addEvent()" class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm font-medium">追加</button>
+      </div>
+    </div>
+
+    <!-- Itinerary table -->
+    <div id="itinerary"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     MODAL: Share trip
+═══════════════════════════════════════════════════ -->
+<div id="share-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-gray-800">旅程を共有</h2>
+      <button onclick="closeShareModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+    </div>
+
+    <div id="share-error" class="hidden mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+    <div id="share-success" class="hidden mb-3 text-sm text-green-600 bg-green-50 border border-green-200 rounded px-3 py-2"></div>
+
+    <!-- Add share -->
+    <div class="mb-4">
+      <label class="block text-xs font-medium text-gray-600 mb-1">メールアドレス</label>
+      <input id="share-email" type="email" placeholder="friend@example.com"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mb-2" />
+      <label class="block text-xs font-medium text-gray-600 mb-1">権限</label>
+      <select id="share-permission" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mb-3">
+        <option value="view">閲覧のみ</option>
+        <option value="edit">編集可</option>
+      </select>
+      <button onclick="addShare()" class="w-full py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition">共有する</button>
+    </div>
+
+    <!-- Existing shares list -->
+    <div>
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">共有中のユーザー</h3>
+      <div id="share-list" class="space-y-2 max-h-48 overflow-y-auto text-sm text-gray-600">
+        <div class="text-gray-400 text-xs">読み込み中…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+// Supabase client
+// ══════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://ceqiwvaaxpgmtcuoqulh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlcWl3dmFheHBnbXRjdW9xdWxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMjI1NTUsImV4cCI6MjA5NDU5ODU1NX0.66nqe6Z7uxkfXMAf5d83k6tbXScN6_qJMk12LQYLbUo';
+
+let sb;
+try {
+  const { createClient } = supabase;
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (e) {
+  document.getElementById('auth-error').textContent = 'アプリの初期化に失敗しました: ' + e.message;
+  document.getElementById('auth-error').classList.remove('hidden');
+  throw e;
+}
+
+// ══════════════════════════════════════════════════
+// App state
+// ══════════════════════════════════════════════════
+const CATEGORY_ORDER = { '午前': 0, '午後': 1, '夜': 2, '': 3 };
+
+let currentUser      = null;   // auth.User
+let currentTrip      = null;   // trips row
+let currentEvents    = [];     // events rows for current trip
+let canEdit          = false;  // edit permission flag
+let selectedCategory = '';
+let editingId        = null;   // uuid of event being edited
+
+// ══════════════════════════════════════════════════
+// Screen helpers
+// ══════════════════════════════════════════════════
+function showScreen(id) {
+  ['screen-auth', 'screen-trips', 'screen-detail'].forEach(s => {
+    document.getElementById(s).classList.add('hidden');
+  });
+  document.getElementById(id).classList.remove('hidden');
+}
+
+// ══════════════════════════════════════════════════
+// Auth
+// ══════════════════════════════════════════════════
+let authMode = 'login'; // or 'signup'
+
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  document.getElementById('auth-btn').textContent       = authMode === 'login' ? 'ログイン' : 'アカウント作成';
+  document.getElementById('auth-toggle-label').textContent = authMode === 'login' ? 'アカウント作成に切り替え' : 'ログインに切り替え';
+  document.getElementById('auth-mode-hint').textContent = authMode === 'login' ? 'ログインモード' : '新規登録モード';
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+async function authSubmit() {
+  const email    = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl    = document.getElementById('auth-error');
+  errEl.classList.add('hidden');
+
+  if (!email || !password) {
+    errEl.textContent = 'メールアドレスとパスワードを入力してください。';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const btn = document.getElementById('auth-btn');
+  btn.disabled = true;
+  btn.textContent = '処理中…';
+
+  let result;
+  if (authMode === 'login') {
+    result = await sb.auth.signInWithPassword({ email, password });
+  } else {
+    result = await sb.auth.signUp({ email, password });
+  }
+
+  btn.disabled = false;
+  btn.textContent = authMode === 'login' ? 'ログイン' : 'アカウント作成';
+
+  if (result.error) {
+    errEl.textContent = result.error.message;
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  if (authMode === 'signup' && !result.data.session) {
+    errEl.textContent = '確認メールを送りました。メールをご確認ください。';
+    errEl.classList.remove('hidden');
+    errEl.classList.replace('text-red-600', 'text-blue-600');
+    errEl.classList.replace('bg-red-50', 'bg-blue-50');
+    errEl.classList.replace('border-red-200', 'border-blue-200');
+    return;
+  }
+  // session established via onAuthStateChange
+}
+
+async function logout() {
+  await sb.auth.signOut();
+}
+
+// ══════════════════════════════════════════════════
+// Trip list screen
+// ══════════════════════════════════════════════════
+async function loadTrips() {
+  showScreen('screen-trips');
+  document.getElementById('user-email-label').textContent = currentUser.email;
+
+  const listEl = document.getElementById('trip-list');
+  listEl.innerHTML = '<div class="text-center text-gray-400 py-8 text-sm">読み込み中…</div>';
+
+  // Own trips
+  const { data: ownTrips, error: e1 } = await sb
+    .from('trips')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .order('created_at', { ascending: false });
+
+  // Shared trips — find shares that match our email
+  const { data: shares, error: e2 } = await sb
+    .from('trip_shares')
+    .select('trip_id, permission')
+    .eq('shared_with_email', currentUser.email);
+
+  if (e1 || e2) {
+    document.getElementById('trip-list-error').textContent = (e1 || e2).message;
+    document.getElementById('trip-list-error').classList.remove('hidden');
+  }
+
+  let sharedTrips = [];
+  if (shares && shares.length) {
+    const sharedIds = shares.map(s => s.trip_id);
+    const { data: st } = await sb
+      .from('trips')
+      .select('*')
+      .in('id', sharedIds)
+      .order('created_at', { ascending: false });
+    if (st) {
+      // Annotate permission
+      sharedTrips = st.map(t => {
+        const s = shares.find(sh => sh.trip_id === t.id);
+        return { ...t, _permission: s ? s.permission : 'view', _shared: true };
+      });
+    }
+  }
+
+  const allTrips = [
+    ...(ownTrips || []).map(t => ({ ...t, _permission: 'edit', _shared: false })),
+    ...sharedTrips,
+  ];
+
+  if (allTrips.length === 0) {
+    listEl.innerHTML = `
+      <div class="text-center text-gray-400 py-12">
+        <div class="text-5xl mb-3">✈️</div>
+        <p class="text-sm">旅程がまだありません。上のフォームから作成してください。</p>
+      </div>`;
+    return;
+  }
+
+  listEl.innerHTML = allTrips.map(t => `
+    <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between cursor-pointer hover:shadow-md transition"
+         onclick="openTrip('${t.id}')">
+      <div>
+        <div class="font-semibold text-gray-800">${escapeHtml(t.title || '（タイトルなし）')}</div>
+        <div class="text-xs text-gray-400 mt-0.5">
+          ${t.date_from && t.date_to ? `${t.date_from} 〜 ${t.date_to}` : '期間未設定'}
+          ${t._shared ? `<span class="ml-2 bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded text-xs">${t._permission === 'edit' ? '共有（編集可）' : '共有（閲覧）'}</span>` : ''}
+        </div>
+      </div>
+      <div class="text-gray-300 text-lg">›</div>
+    </div>`).join('');
+}
+
+async function createTrip() {
+  const titleEl = document.getElementById('new-trip-title');
+  const title = titleEl.value.trim();
+  if (!title) { titleEl.focus(); return; }
+
+  const { data, error } = await sb
+    .from('trips')
+    .insert({ user_id: currentUser.id, title })
+    .select()
+    .single();
+
+  if (error) {
+    document.getElementById('trip-list-error').textContent = error.message;
+    document.getElementById('trip-list-error').classList.remove('hidden');
+    return;
+  }
+  titleEl.value = '';
+  await openTrip(data.id);
+}
+
+// ══════════════════════════════════════════════════
+// Trip detail screen
+// ══════════════════════════════════════════════════
+async function openTrip(tripId) {
+  showScreen('screen-detail');
+  document.getElementById('itinerary').innerHTML = '<div class="text-center text-gray-400 py-12 text-sm">読み込み中…</div>';
+
+  // Load trip
+  const { data: trip, error: te } = await sb
+    .from('trips')
+    .select('*')
+    .eq('id', tripId)
+    .single();
+
+  if (te || !trip) {
+    alert('旅程の読み込みに失敗しました。');
+    goToTrips();
+    return;
+  }
+  currentTrip = trip;
+
+  // Determine edit permission
+  if (trip.user_id === currentUser.id) {
+    canEdit = true;
+  } else {
+    const { data: sh } = await sb
+      .from('trip_shares')
+      .select('permission')
+      .eq('trip_id', tripId)
+      .eq('shared_with_email', currentUser.email)
+      .single();
+    canEdit = sh && sh.permission === 'edit';
+  }
+
+  // Load events
+  const { data: events } = await sb
+    .from('events')
+    .select('*')
+    .eq('trip_id', tripId)
+    .order('date')
+    .order('created_at');
+
+  currentEvents = events || [];
+
+  // Populate form fields
+  document.getElementById('tripTitle').value = trip.title || '';
+  document.getElementById('printTitle').textContent = trip.title || '';
+  document.getElementById('dateFrom').value = trip.date_from || '';
+  document.getElementById('dateTo').value = trip.date_to || '';
+
+  // Read-only banner & form
+  document.getElementById('readonly-banner').classList.toggle('hidden', canEdit);
+  document.getElementById('event-form-wrapper').classList.toggle('hidden', !canEdit);
+
+  cancelEdit();
+  render();
+}
+
+function goToTrips() {
+  currentTrip   = null;
+  currentEvents = [];
+  canEdit       = false;
+  loadTrips();
+}
+
+async function deleteTrip() {
+  if (!currentTrip || currentTrip.user_id !== currentUser.id) {
+    alert('この旅程を削除する権限がありません。');
+    return;
+  }
+  if (!confirm(`「${currentTrip.title || '旅程'}」を完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+  const { error } = await sb.from('trips').delete().eq('id', currentTrip.id);
+  if (error) { alert(error.message); return; }
+  goToTrips();
+}
+
+// ── Trip metadata saves ──
+
+let titleSaveTimer = null;
+function saveTripTitle() {
+  const val = document.getElementById('tripTitle').value;
+  document.getElementById('printTitle').textContent = val;
+  clearTimeout(titleSaveTimer);
+  titleSaveTimer = setTimeout(async () => {
+    if (!currentTrip || !canEdit) return;
+    await sb.from('trips').update({ title: val }).eq('id', currentTrip.id);
+    currentTrip.title = val;
+  }, 600);
+}
+
+let rangeSaveTimer = null;
+function saveDateRange() {
+  const from = document.getElementById('dateFrom').value;
+  const to   = document.getElementById('dateTo').value;
+  if (from && to && from > to) return;
+  clearTimeout(rangeSaveTimer);
+  rangeSaveTimer = setTimeout(async () => {
+    if (!currentTrip || !canEdit) return;
+    await sb.from('trips').update({ date_from: from || null, date_to: to || null }).eq('id', currentTrip.id);
+    currentTrip.date_from = from || null;
+    currentTrip.date_to   = to   || null;
+    render();
+  }, 400);
+}
+
+function clearDateRange() {
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value   = '';
+  saveDateRange();
+}
+
+// ── Category buttons ──
+
+function selectCategory(cat) {
+  selectedCategory = (selectedCategory === cat) ? '' : cat;
+  updateCategoryButtons();
+}
+
+function setCategory(cat) {
+  selectedCategory = cat || '';
+  updateCategoryButtons();
+}
+
+function updateCategoryButtons() {
+  ['午前', '午後', '夜'].forEach(c => {
+    document.getElementById('cat-' + c).className = c === selectedCategory
+      ? 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition'
+      : 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition';
+  });
+}
+
+// ── Event CRUD ──
+
+async function addEvent() {
+  if (!canEdit) return;
+  const date = document.getElementById('eventDate').value;
+  const desc = document.getElementById('eventDesc').value.trim();
+  if (!date || !desc) { alert('日付と内容を入力してください。'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+
+  if (editingId !== null) {
+    // Update existing
+    const { error } = await sb
+      .from('events')
+      .update({ date, time: selectedCategory, description: desc })
+      .eq('id', editingId);
+    if (error) { alert(error.message); btn.disabled = false; return; }
+    const idx = currentEvents.findIndex(e => e.id === editingId);
+    if (idx !== -1) Object.assign(currentEvents[idx], { date, time: selectedCategory, description: desc });
+  } else {
+    // Restore excluded date if needed
+    const excluded = currentTrip.excluded_dates || [];
+    let newExcluded = excluded;
+    if (excluded.includes(date)) {
+      newExcluded = excluded.filter(d => d !== date);
+      await sb.from('trips').update({ excluded_dates: newExcluded }).eq('id', currentTrip.id);
+      currentTrip.excluded_dates = newExcluded;
+    }
+
+    const { data: newEv, error } = await sb
+      .from('events')
+      .insert({ trip_id: currentTrip.id, date, time: selectedCategory, description: desc })
+      .select()
+      .single();
+    if (error) { alert(error.message); btn.disabled = false; return; }
+    currentEvents.push(newEv);
+  }
+
+  sortEvents();
+  btn.disabled = false;
+  render();
+  cancelEdit();
+}
+
+function editEvent(id) {
+  const e = currentEvents.find(ev => ev.id === id);
+  if (!e) return;
+  editingId = id;
+  document.getElementById('eventDate').value  = e.date;
+  document.getElementById('eventDesc').value  = e.description;
+  setCategory(e.time);
+  document.getElementById('formTitle').textContent  = 'イベント編集';
+  document.getElementById('submitBtn').textContent   = '更新';
+  document.getElementById('cancelBtn').classList.remove('hidden');
+  document.getElementById('eventDesc').focus();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('eventDate').value  = '';
+  document.getElementById('eventDesc').value  = '';
+  setCategory('');
+  document.getElementById('formTitle').textContent = 'イベント追加';
+  document.getElementById('submitBtn').textContent  = '追加';
+  document.getElementById('cancelBtn').classList.add('hidden');
+}
+
+async function deleteEvent(id) {
+  if (!canEdit) return;
+  if (editingId === id) cancelEdit();
+  const { error } = await sb.from('events').delete().eq('id', id);
+  if (error) { alert(error.message); return; }
+  currentEvents = currentEvents.filter(e => e.id !== id);
+  render();
+}
+
+async function deleteColumn(date, ev) {
+  if (!canEdit) return;
+  ev.stopPropagation();
+  if (!confirm(`${formatDate(date)} の列を削除しますか？\nその日のイベントもすべて削除されます。`)) return;
+
+  // Delete events on that date
+  const ids = currentEvents.filter(e => e.date === date).map(e => e.id);
+  if (ids.length) {
+    const { error } = await sb.from('events').delete().in('id', ids);
+    if (error) { alert(error.message); return; }
+  }
+  currentEvents = currentEvents.filter(e => e.date !== date);
+
+  // Add to excluded_dates
+  const excluded = currentTrip.excluded_dates || [];
+  if (!excluded.includes(date)) {
+    const newExcluded = [...excluded, date];
+    await sb.from('trips').update({ excluded_dates: newExcluded }).eq('id', currentTrip.id);
+    currentTrip.excluded_dates = newExcluded;
+  }
+  if (editingId !== null && currentEvents.find(e => e.id === editingId)?.date === date) cancelEdit();
+  render();
+}
+
+// ── Helpers ──
+
+function sortEvents() {
+  currentEvents.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (CATEGORY_ORDER[a.time] ?? 3) - (CATEGORY_ORDER[b.time] ?? 3);
+  });
+}
+
+function selectDate(date) {
+  if (!canEdit) return;
+  cancelEdit();
+  document.getElementById('eventDate').value = date;
+  document.getElementById('eventDesc').focus();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const days = ['日', '月', '火', '水', '木', '金', '土'];
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+
+function getDatesInRange(from, to) {
+  const dates = [];
+  const end = new Date(to + 'T12:00:00');
+  for (let d = new Date(from + 'T12:00:00'); d <= end; d.setDate(d.getDate() + 1)) {
+    dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  return dates;
+}
+
+function groupByDate(events) {
+  const map = {};
+  for (const e of events) {
+    if (!map[e.date]) map[e.date] = [];
+    map[e.date].push(e);
+  }
+  return map;
+}
+
+function categoryBadge(cat) {
+  if (!cat) return '';
+  const colors = { '午前': 'bg-sky-100 text-sky-700', '午後': 'bg-orange-100 text-orange-700', '夜': 'bg-indigo-100 text-indigo-700' };
+  return `<span class="inline-block text-xs px-2 py-0.5 rounded-full font-medium ${colors[cat] || ''} mb-1">${cat}</span>`;
+}
+
+function dayBg(dateStr) {
+  const dow = new Date(dateStr + 'T12:00:00').getDay();
+  if (dow === 6) return 'bg-indigo-50';
+  if (dow === 0) return 'bg-red-50';
+  return '';
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Render ──
+
+function render() {
+  const container = document.getElementById('itinerary');
+  const excluded  = currentTrip ? (currentTrip.excluded_dates || []) : [];
+  const dateFrom  = currentTrip ? (currentTrip.date_from || '') : '';
+  const dateTo    = currentTrip ? (currentTrip.date_to   || '') : '';
+
+  let allDates = [];
+  if (dateFrom && dateTo) {
+    allDates = getDatesInRange(dateFrom, dateTo);
+    for (const e of currentEvents) {
+      if (!allDates.includes(e.date)) allDates.push(e.date);
+    }
+    allDates.sort();
+  } else {
+    allDates = [...new Set(currentEvents.map(e => e.date))].sort();
+  }
+  allDates = allDates.filter(d => !excluded.includes(d));
+
+  if (allDates.length === 0) {
+    container.innerHTML = `
+      <div class="text-center text-gray-400 py-16">
+        <div class="text-5xl mb-3">✈️</div>
+        <p class="text-lg">旅行期間を設定するか、上のフォームからイベントを追加してください。</p>
+      </div>`;
+    return;
+  }
+
+  const eventMap = groupByDate(currentEvents);
+  const groups   = allDates.map(date => [date, eventMap[date] || []]);
+  const maxRows  = Math.max(1, ...groups.map(([, evs]) => evs.length));
+
+  const colClickAttr = canEdit ? `onclick="selectDate('{DATE}')"` : '';
+
+  const headerCells = groups.map(([date], i) => `
+    <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 ${canEdit ? 'cursor-pointer' : ''} select-none group ${dayBg(date)}"
+        ${canEdit ? `onclick="selectDate('${date}')"` : ''}>
+      <div class="flex items-start justify-between no-print">
+        <div>
+          <div class="text-xs font-bold text-blue-600 mb-1">${i + 1}日目</div>
+          <div class="text-sm font-bold text-gray-700 ${canEdit ? 'group-hover:text-blue-600' : ''} transition">${formatDate(date)}</div>
+          ${canEdit ? `<div class="text-xs text-gray-400 mt-0.5">＋ 追加</div>` : ''}
+        </div>
+        ${canEdit ? `<button onclick="deleteColumn('${date}', event)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition text-sm cursor-pointer leading-none" title="この列を削除">✕</button>` : ''}
+      </div>
+      <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
+    </th>`).join('');
+
+  const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
+    const cells = groups.map(([date, evs]) => {
+      const e = evs[rowIndex];
+      const colBg = e && e.id === editingId ? 'bg-blue-50' : dayBg(date);
+      if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3 ${colBg}"></td>`;
+      return `
+        <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg}">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              ${categoryBadge(e.time)}
+              <div class="text-sm text-gray-800">${escapeHtml(e.description)}</div>
+            </div>
+            ${canEdit ? `
+            <div class="flex gap-1 flex-shrink-0 no-print">
+              <button onclick="editEvent('${e.id}')" class="text-gray-400 hover:text-blue-500 transition text-xs" title="編集">✎</button>
+              <button onclick="deleteEvent('${e.id}')" class="text-gray-400 hover:text-red-500 transition text-xs" title="削除">✕</button>
+            </div>` : ''}
+          </div>
+        </td>`;
+    }).join('');
+    return `<tr class="${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-t border-gray-100">${cells}</tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      <table class="text-sm border-collapse w-full">
+        <thead>
+          <tr class="bg-gray-50 border-b border-gray-200">${headerCells}</tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════
+// Share modal
+// ══════════════════════════════════════════════════
+async function openShareModal() {
+  if (!currentTrip || currentTrip.user_id !== currentUser.id) {
+    alert('共有の管理は旅程のオーナーのみです。');
+    return;
+  }
+  document.getElementById('share-modal').classList.remove('hidden');
+  document.getElementById('share-error').classList.add('hidden');
+  document.getElementById('share-success').classList.add('hidden');
+  document.getElementById('share-email').value = '';
+  await refreshShareList();
+}
+
+function closeShareModal() {
+  document.getElementById('share-modal').classList.add('hidden');
+}
+
+async function refreshShareList() {
+  const listEl = document.getElementById('share-list');
+  listEl.innerHTML = '<div class="text-gray-400 text-xs">読み込み中…</div>';
+
+  const { data, error } = await sb
+    .from('trip_shares')
+    .select('*')
+    .eq('trip_id', currentTrip.id)
+    .order('created_at');
+
+  if (error) { listEl.innerHTML = `<div class="text-red-500 text-xs">${escapeHtml(error.message)}</div>`; return; }
+  if (!data || data.length === 0) {
+    listEl.innerHTML = '<div class="text-gray-400 text-xs">まだ共有していません。</div>';
+    return;
+  }
+  listEl.innerHTML = data.map(s => `
+    <div class="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+      <div>
+        <div class="text-sm text-gray-700">${escapeHtml(s.shared_with_email)}</div>
+        <div class="text-xs text-gray-400">${s.permission === 'edit' ? '編集可' : '閲覧のみ'}</div>
+      </div>
+      <button onclick="removeShare('${s.id}')" class="text-gray-400 hover:text-red-500 transition text-xs ml-4">削除</button>
+    </div>`).join('');
+}
+
+async function addShare() {
+  const email      = document.getElementById('share-email').value.trim().toLowerCase();
+  const permission = document.getElementById('share-permission').value;
+  const errEl      = document.getElementById('share-error');
+  const okEl       = document.getElementById('share-success');
+  errEl.classList.add('hidden');
+  okEl.classList.add('hidden');
+
+  if (!email) { errEl.textContent = 'メールアドレスを入力してください。'; errEl.classList.remove('hidden'); return; }
+  if (email === currentUser.email) { errEl.textContent = '自分自身と共有することはできません。'; errEl.classList.remove('hidden'); return; }
+
+  const { error } = await sb.from('trip_shares').upsert(
+    { trip_id: currentTrip.id, shared_with_email: email, permission },
+    { onConflict: 'trip_id,shared_with_email' }
+  );
+
+  if (error) { errEl.textContent = error.message; errEl.classList.remove('hidden'); return; }
+  okEl.textContent = `${email} に共有しました。`;
+  okEl.classList.remove('hidden');
+  document.getElementById('share-email').value = '';
+  await refreshShareList();
+}
+
+async function removeShare(shareId) {
+  const { error } = await sb.from('trip_shares').delete().eq('id', shareId);
+  if (error) { alert(error.message); return; }
+  await refreshShareList();
+}
+
+// ══════════════════════════════════════════════════
+// Bootstrap — listen to auth state changes
+// ══════════════════════════════════════════════════
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (session && session.user) {
+    currentUser = session.user;
+    await loadTrips();
+  } else {
+    currentUser = null;
+    showScreen('screen-auth');
+  }
+});
+</script>
+</body>
+</html>
