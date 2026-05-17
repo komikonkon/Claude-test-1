@@ -216,7 +216,7 @@ try {
 } catch (e) {
   document.getElementById('auth-error').textContent = 'アプリの初期化に失敗しました: ' + e.message;
   document.getElementById('auth-error').classList.remove('hidden');
-  throw e;
+  console.error('Supabase init error:', e);
 }
 
 // ══════════════════════════════════════════════════
@@ -298,7 +298,13 @@ async function authSubmit() {
 }
 
 async function logout() {
-  await sb.auth.signOut();
+  if (!sb) { showScreen('screen-auth'); return; }
+  try {
+    await sb.auth.signOut();
+  } catch (e) {
+    console.error('logout error:', e);
+    showScreen('screen-auth');
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -375,23 +381,32 @@ async function loadTrips() {
 }
 
 async function createTrip() {
+  if (!sb || !currentUser) { alert('ログインし直してください。'); return; }
   const titleEl = document.getElementById('new-trip-title');
   const title = titleEl.value.trim();
   if (!title) { titleEl.focus(); return; }
 
-  const { data, error } = await sb
-    .from('trips')
-    .insert({ user_id: currentUser.id, title })
-    .select()
-    .single();
+  const errEl = document.getElementById('trip-list-error');
+  errEl.classList.add('hidden');
 
-  if (error) {
-    document.getElementById('trip-list-error').textContent = error.message;
-    document.getElementById('trip-list-error').classList.remove('hidden');
-    return;
+  try {
+    const { data, error } = await sb
+      .from('trips')
+      .insert({ user_id: currentUser.id, title })
+      .select()
+      .single();
+
+    if (error) {
+      errEl.textContent = error.message;
+      errEl.classList.remove('hidden');
+      return;
+    }
+    titleEl.value = '';
+    await openTrip(data.id);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
   }
-  titleEl.value = '';
-  await openTrip(data.id);
 }
 
 // ══════════════════════════════════════════════════
