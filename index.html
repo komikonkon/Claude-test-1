@@ -42,8 +42,8 @@
       </div>
     </div>
 
-    <!-- Print title (shown only when printing) -->
-    <div class="hidden print:block text-2xl font-bold text-center mb-4" id="printTitle"></div>
+    <!-- Print title -->
+    <div class="print-only text-2xl font-bold text-center mb-4" id="printTitle"></div>
 
     <!-- Add / Edit event form -->
     <div class="bg-white rounded-xl shadow p-4 mb-6 no-print">
@@ -91,17 +91,31 @@
     let selectedCategory = '';
     let editingId = null;
 
+    function defaultData() {
+      return { title: '', dateFrom: '', dateTo: '', excludedDates: [], events: [] };
+    }
+
     function load() {
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', dateFrom: '', dateTo: '', excludedDates: [], events: [] };
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!stored) return defaultData();
+        return {
+          title: stored.title || '',
+          dateFrom: stored.dateFrom || '',
+          dateTo: stored.dateTo || '',
+          excludedDates: Array.isArray(stored.excludedDates) ? stored.excludedDates : [],
+          events: Array.isArray(stored.events) ? stored.events : [],
+        };
       } catch {
-        return { title: '', dateFrom: '', dateTo: '', excludedDates: [], events: [] };
+        return defaultData();
       }
     }
 
     function save() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
+
+    // ---- Trip info ----
 
     function saveTripTitle() {
       data.title = document.getElementById('tripTitle').value;
@@ -128,29 +142,29 @@
       render();
     }
 
-    function getDatesInRange(from, to) {
-      const dates = [];
-      const end = new Date(to + 'T12:00:00');
-      for (let d = new Date(from + 'T12:00:00'); d <= end; d.setDate(d.getDate() + 1)) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        dates.push(`${y}-${m}-${day}`);
-      }
-      return dates;
+    // ---- Category buttons ----
+
+    // Called by user click: toggles off if same button clicked again
+    function selectCategory(cat) {
+      selectedCategory = (selectedCategory === cat) ? '' : cat;
+      updateCategoryButtons();
     }
 
-    function selectCategory(cat) {
-      selectedCategory = selectedCategory === cat ? '' : cat;
+    // Sets category without toggle (used programmatically)
+    function setCategory(cat) {
+      selectedCategory = cat || '';
+      updateCategoryButtons();
+    }
+
+    function updateCategoryButtons() {
       ['午前', '午後', '夜'].forEach(c => {
-        const btn = document.getElementById('cat-' + c);
-        if (c === selectedCategory) {
-          btn.className = 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition';
-        } else {
-          btn.className = 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition';
-        }
+        document.getElementById('cat-' + c).className = c === selectedCategory
+          ? 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition'
+          : 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition';
       });
     }
+
+    // ---- Event CRUD ----
 
     function addEvent() {
       const date = document.getElementById('eventDate').value;
@@ -165,6 +179,8 @@
         const e = data.events.find(ev => ev.id === editingId);
         if (e) { e.date = date; e.time = selectedCategory; e.desc = desc; }
       } else {
+        // If this date was previously excluded, restore it
+        data.excludedDates = data.excludedDates.filter(d => d !== date);
         data.events.push({ id: Date.now(), date, time: selectedCategory, desc });
       }
 
@@ -183,17 +199,10 @@
       editingId = id;
       document.getElementById('eventDate').value = e.date;
       document.getElementById('eventDesc').value = e.desc;
-      selectCategory(e.time || '');
+      setCategory(e.time);
       document.getElementById('formTitle').textContent = 'イベント編集';
       document.getElementById('submitBtn').textContent = '更新';
       document.getElementById('cancelBtn').classList.remove('hidden');
-      document.getElementById('eventDesc').focus();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function selectDate(date) {
-      cancelEdit();
-      document.getElementById('eventDate').value = date;
       document.getElementById('eventDesc').focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -202,7 +211,7 @@
       editingId = null;
       document.getElementById('eventDate').value = '';
       document.getElementById('eventDesc').value = '';
-      selectCategory('');
+      setCategory('');
       document.getElementById('formTitle').textContent = 'イベント追加';
       document.getElementById('submitBtn').textContent = '追加';
       document.getElementById('cancelBtn').classList.add('hidden');
@@ -215,29 +224,51 @@
       render();
     }
 
-    function deleteColumn(date, event) {
-      event.stopPropagation();
+    function deleteColumn(date, ev) {
+      ev.stopPropagation();
       if (!confirm(`${formatDate(date)} の列を削除しますか？\nその日のイベントもすべて削除されます。`)) return;
       if (editingId !== null && data.events.find(e => e.id === editingId)?.date === date) cancelEdit();
       data.events = data.events.filter(e => e.date !== date);
-      if (!data.excludedDates) data.excludedDates = [];
       if (!data.excludedDates.includes(date)) data.excludedDates.push(date);
       save();
       render();
     }
 
     function clearAll() {
-      if (!confirm('すべてのイベントを削除しますか？')) return;
-      cancelEdit();
-      data.events = [];
+      if (!confirm('旅程表をすべてリセットしますか？\nタイトル・期間・イベントがすべて削除されます。')) return;
+      data = defaultData();
       save();
+      document.getElementById('tripTitle').value = '';
+      document.getElementById('printTitle').textContent = '';
+      document.getElementById('dateFrom').value = '';
+      document.getElementById('dateTo').value = '';
+      cancelEdit();
       render();
     }
 
+    // ---- Helpers ----
+
+    function selectDate(date) {
+      cancelEdit();
+      document.getElementById('eventDate').value = date;
+      document.getElementById('eventDesc').focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function formatDate(dateStr) {
-      const d = new Date(dateStr + 'T00:00:00');
+      // Use T12:00:00 to avoid timezone boundary issues
+      const d = new Date(dateStr + 'T12:00:00');
       const days = ['日', '月', '火', '水', '木', '金', '土'];
       return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${days[d.getDay()]}）`;
+    }
+
+    function getDatesInRange(from, to) {
+      const dates = [];
+      const end = new Date(to + 'T12:00:00');
+      for (let d = new Date(from + 'T12:00:00'); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      }
+      return dates;
     }
 
     function groupByDate(events) {
@@ -246,11 +277,7 @@
         if (!map[e.date]) map[e.date] = [];
         map[e.date].push(e);
       }
-      return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-    }
-
-    function dayLabel(index) {
-      return `${index + 1}日目`;
+      return map;
     }
 
     function categoryBadge(cat) {
@@ -259,11 +286,16 @@
       return `<span class="inline-block text-xs px-2 py-0.5 rounded-full font-medium ${colors[cat] || ''} mb-1">${cat}</span>`;
     }
 
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ---- Render ----
+
     function render() {
       const container = document.getElementById('itinerary');
 
-      // Build the set of dates to show as columns
-      const excluded = data.excludedDates || [];
+      // Build column date list
       let allDates = [];
       if (data.dateFrom && data.dateTo) {
         allDates = getDatesInRange(data.dateFrom, data.dateTo);
@@ -274,7 +306,7 @@
       } else {
         allDates = [...new Set(data.events.map(e => e.date))].sort();
       }
-      allDates = allDates.filter(d => !excluded.includes(d));
+      allDates = allDates.filter(d => !data.excludedDates.includes(d));
 
       if (allDates.length === 0) {
         container.innerHTML = `
@@ -287,13 +319,13 @@
 
       const eventMap = groupByDate(data.events);
       const groups = allDates.map(date => [date, eventMap[date] || []]);
-      const maxRows = Math.max(...groups.map(([, events]) => events.length));
+      const maxRows = Math.max(1, ...groups.map(([, evs]) => evs.length));
 
-      const headerCells = groups.map(([date, ], i) => `
+      const headerCells = groups.map(([date,], i) => `
         <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 cursor-pointer select-none group" onclick="selectDate('${date}')">
           <div class="flex items-start justify-between no-print">
             <div>
-              <div class="text-xs font-bold text-blue-600 mb-1">${dayLabel(i)}</div>
+              <div class="text-xs font-bold text-blue-600 mb-1">${i + 1}日目</div>
               <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition">${formatDate(date)}</div>
               <div class="text-xs text-gray-400 mt-0.5">＋ 追加</div>
             </div>
@@ -303,12 +335,12 @@
         </th>`).join('');
 
       const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
-        const cells = groups.map(([, events]) => {
-          const e = events[rowIndex];
+        const cells = groups.map(([, evs]) => {
+          const e = evs[rowIndex];
           if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3"></td>`;
-          const isEditing = e.id === editingId;
+          const highlight = e.id === editingId ? 'bg-blue-50' : '';
           return `
-            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${isEditing ? 'bg-blue-50' : ''}">
+            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${highlight}">
               <div class="flex items-start justify-between gap-2">
                 <div>
                   ${categoryBadge(e.time)}
@@ -335,15 +367,11 @@
         </div>`;
     }
 
-    function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    // Initialize
+    // ---- Initialize ----
     document.getElementById('tripTitle').value = data.title;
     document.getElementById('printTitle').textContent = data.title;
-    document.getElementById('dateFrom').value = data.dateFrom || '';
-    document.getElementById('dateTo').value = data.dateTo || '';
+    document.getElementById('dateFrom').value = data.dateFrom;
+    document.getElementById('dateTo').value = data.dateTo;
     render();
   </script>
 </body>
