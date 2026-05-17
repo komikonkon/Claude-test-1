@@ -34,17 +34,27 @@
     <!-- Print title (shown only when printing) -->
     <div class="hidden print:block text-2xl font-bold text-center mb-4" id="printTitle"></div>
 
-    <!-- Add event form -->
+    <!-- Add / Edit event form -->
     <div class="bg-white rounded-xl shadow p-4 mb-6 no-print">
-      <h2 class="text-lg font-semibold text-gray-700 mb-3">イベント追加</h2>
+      <div class="flex items-center justify-between mb-3">
+        <h2 id="formTitle" class="text-lg font-semibold text-gray-700">イベント追加</h2>
+        <button id="cancelBtn" onclick="cancelEdit()" class="hidden text-sm text-gray-500 hover:text-gray-700 underline">キャンセル</button>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
           <label class="block text-xs text-gray-500 mb-1">日付</label>
           <input id="eventDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <div>
-          <label class="block text-xs text-gray-500 mb-1">時刻（任意）</label>
-          <input id="eventTime" type="time" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <label class="block text-xs text-gray-500 mb-1">時間帯（任意）</label>
+          <div class="flex gap-1">
+            <button onclick="selectCategory('午前')" id="cat-午前"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午前</button>
+            <button onclick="selectCategory('午後')" id="cat-午後"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午後</button>
+            <button onclick="selectCategory('夜')" id="cat-夜"
+              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">夜</button>
+          </div>
         </div>
         <div class="sm:col-span-2">
           <label class="block text-xs text-gray-500 mb-1">内容</label>
@@ -54,7 +64,7 @@
         </div>
       </div>
       <div class="flex justify-end mt-3">
-        <button onclick="addEvent()" class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm font-medium">追加</button>
+        <button id="submitBtn" onclick="addEvent()" class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm font-medium">追加</button>
       </div>
     </div>
 
@@ -64,8 +74,11 @@
 
   <script>
     const STORAGE_KEY = 'travel_itinerary_v1';
+    const CATEGORY_ORDER = { '午前': 0, '午後': 1, '夜': 2, '': 3 };
 
     let data = load();
+    let selectedCategory = '';
+    let editingId = null;
 
     function load() {
       try {
@@ -85,9 +98,20 @@
       save();
     }
 
+    function selectCategory(cat) {
+      selectedCategory = selectedCategory === cat ? '' : cat;
+      ['午前', '午後', '夜'].forEach(c => {
+        const btn = document.getElementById('cat-' + c);
+        if (c === selectedCategory) {
+          btn.className = 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition';
+        } else {
+          btn.className = 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition';
+        }
+      });
+    }
+
     function addEvent() {
       const date = document.getElementById('eventDate').value;
-      const time = document.getElementById('eventTime').value;
       const desc = document.getElementById('eventDesc').value.trim();
 
       if (!date || !desc) {
@@ -95,20 +119,48 @@
         return;
       }
 
-      data.events.push({ id: Date.now(), date, time, desc });
+      if (editingId !== null) {
+        const e = data.events.find(ev => ev.id === editingId);
+        if (e) { e.date = date; e.time = selectedCategory; e.desc = desc; }
+      } else {
+        data.events.push({ id: Date.now(), date, time: selectedCategory, desc });
+      }
+
       data.events.sort((a, b) => {
-        const da = a.date + (a.time || '00:00');
-        const db = b.date + (b.time || '00:00');
-        return da.localeCompare(db);
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return (CATEGORY_ORDER[a.time] ?? 3) - (CATEGORY_ORDER[b.time] ?? 3);
       });
       save();
       render();
+      cancelEdit();
+    }
 
-      document.getElementById('eventTime').value = '';
+    function editEvent(id) {
+      const e = data.events.find(ev => ev.id === id);
+      if (!e) return;
+      editingId = id;
+      document.getElementById('eventDate').value = e.date;
+      document.getElementById('eventDesc').value = e.desc;
+      selectCategory(e.time || '');
+      document.getElementById('formTitle').textContent = 'イベント編集';
+      document.getElementById('submitBtn').textContent = '更新';
+      document.getElementById('cancelBtn').classList.remove('hidden');
+      document.getElementById('eventDesc').focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function cancelEdit() {
+      editingId = null;
+      document.getElementById('eventDate').value = '';
       document.getElementById('eventDesc').value = '';
+      selectCategory('');
+      document.getElementById('formTitle').textContent = 'イベント追加';
+      document.getElementById('submitBtn').textContent = '追加';
+      document.getElementById('cancelBtn').classList.add('hidden');
     }
 
     function deleteEvent(id) {
+      if (editingId === id) cancelEdit();
       data.events = data.events.filter(e => e.id !== id);
       save();
       render();
@@ -116,6 +168,7 @@
 
     function clearAll() {
       if (!confirm('すべてのイベントを削除しますか？')) return;
+      cancelEdit();
       data.events = [];
       save();
       render();
@@ -138,6 +191,12 @@
 
     function dayLabel(index) {
       return `${index + 1}日目`;
+    }
+
+    function categoryBadge(cat) {
+      if (!cat) return '';
+      const colors = { '午前': 'bg-sky-100 text-sky-700', '午後': 'bg-orange-100 text-orange-700', '夜': 'bg-indigo-100 text-indigo-700' };
+      return `<span class="inline-block text-xs px-2 py-0.5 rounded-full font-medium ${colors[cat] || ''} mb-1">${cat}</span>`;
     }
 
     function render() {
@@ -165,14 +224,18 @@
         const cells = groups.map(([, events]) => {
           const e = events[rowIndex];
           if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3"></td>`;
+          const isEditing = e.id === editingId;
           return `
-            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top">
+            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${isEditing ? 'bg-blue-50' : ''}">
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <span class="text-xs text-gray-400 font-mono block">${e.time || '—'}</span>
-                  <span class="text-sm text-gray-800">${escapeHtml(e.desc)}</span>
+                  ${categoryBadge(e.time)}
+                  <div class="text-sm text-gray-800">${escapeHtml(e.desc)}</div>
                 </div>
-                <button onclick="deleteEvent(${e.id})" class="text-red-400 hover:text-red-600 transition flex-shrink-0 no-print" title="削除">✕</button>
+                <div class="flex gap-1 flex-shrink-0 no-print">
+                  <button onclick="editEvent(${e.id})" class="text-gray-400 hover:text-blue-500 transition text-xs" title="編集">✎</button>
+                  <button onclick="deleteEvent(${e.id})" class="text-gray-400 hover:text-red-500 transition text-xs" title="削除">✕</button>
+                </div>
               </div>
             </td>`;
         }).join('');
