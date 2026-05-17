@@ -20,7 +20,7 @@ create table if not exists public.events (
   trip_id    uuid not null references public.trips on delete cascade,
   date       date not null,
   time       text not null default '',
-  desc       text not null,
+  description text not null,
   created_at timestamptz not null default now()
 );
 

@@ -532,11 +532,11 @@ async function addEvent() {
     // Update existing
     const { error } = await sb
       .from('events')
-      .update({ date, time: selectedCategory, desc })
+      .update({ date, time: selectedCategory, description: desc })
       .eq('id', editingId);
     if (error) { alert(error.message); btn.disabled = false; return; }
     const idx = currentEvents.findIndex(e => e.id === editingId);
-    if (idx !== -1) Object.assign(currentEvents[idx], { date, time: selectedCategory, desc });
+    if (idx !== -1) Object.assign(currentEvents[idx], { date, time: selectedCategory, description: desc });
   } else {
     // Restore excluded date if needed
     const excluded = currentTrip.excluded_dates || [];
@@ -549,7 +549,7 @@ async function addEvent() {
 
     const { data: newEv, error } = await sb
       .from('events')
-      .insert({ trip_id: currentTrip.id, date, time: selectedCategory, desc })
+      .insert({ trip_id: currentTrip.id, date, time: selectedCategory, description: desc })
       .select()
       .single();
     if (error) { alert(error.message); btn.disabled = false; return; }
@@ -567,7 +567,7 @@ function editEvent(id) {
   if (!e) return;
   editingId = id;
   document.getElementById('eventDate').value  = e.date;
-  document.getElementById('eventDesc').value  = e.desc;
+  document.getElementById('eventDesc').value  = e.description;
   setCategory(e.time);
   document.getElementById('formTitle').textContent  = 'イベント編集';
   document.getElementById('submitBtn').textContent   = '更新';
@@ -740,7 +740,7 @@ function render() {
           <div class="flex items-start justify-between gap-2">
             <div>
               ${categoryBadge(e.time)}
-              <div class="text-sm text-gray-800">${escapeHtml(e.desc)}</div>
+              <div class="text-sm text-gray-800">${escapeHtml(e.description)}</div>
             </div>
             ${canEdit ? `
             <div class="flex gap-1 flex-shrink-0 no-print">
