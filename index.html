@@ -93,9 +93,9 @@
 
     function load() {
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', dateFrom: '', dateTo: '', events: [] };
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', dateFrom: '', dateTo: '', excludedDates: [], events: [] };
       } catch {
-        return { title: '', dateFrom: '', dateTo: '', events: [] };
+        return { title: '', dateFrom: '', dateTo: '', excludedDates: [], events: [] };
       }
     }
 
@@ -212,6 +212,17 @@
       render();
     }
 
+    function deleteColumn(date, event) {
+      event.stopPropagation();
+      if (!confirm(`${formatDate(date)} の列を削除しますか？\nその日のイベントもすべて削除されます。`)) return;
+      if (editingId !== null && data.events.find(e => e.id === editingId)?.date === date) cancelEdit();
+      data.events = data.events.filter(e => e.date !== date);
+      if (!data.excludedDates) data.excludedDates = [];
+      if (!data.excludedDates.includes(date)) data.excludedDates.push(date);
+      save();
+      render();
+    }
+
     function clearAll() {
       if (!confirm('すべてのイベントを削除しますか？')) return;
       cancelEdit();
@@ -249,10 +260,10 @@
       const container = document.getElementById('itinerary');
 
       // Build the set of dates to show as columns
+      const excluded = data.excludedDates || [];
       let allDates = [];
       if (data.dateFrom && data.dateTo) {
         allDates = getDatesInRange(data.dateFrom, data.dateTo);
-        // Also include dates from events that are outside the range
         for (const e of data.events) {
           if (!allDates.includes(e.date)) allDates.push(e.date);
         }
@@ -260,6 +271,7 @@
       } else {
         allDates = [...new Set(data.events.map(e => e.date))].sort();
       }
+      allDates = allDates.filter(d => !excluded.includes(d));
 
       if (allDates.length === 0) {
         container.innerHTML = `
@@ -276,10 +288,15 @@
 
       const headerCells = groups.map(([date, ], i) => `
         <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 cursor-pointer select-none group" onclick="selectDate('${date}')">
-          <div class="text-xs font-bold text-blue-600 mb-1 no-print">${dayLabel(i)}</div>
-          <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition no-print">${formatDate(date)}</div>
+          <div class="flex items-start justify-between no-print">
+            <div>
+              <div class="text-xs font-bold text-blue-600 mb-1">${dayLabel(i)}</div>
+              <div class="text-sm font-bold text-gray-700 group-hover:text-blue-600 transition">${formatDate(date)}</div>
+              <div class="text-xs text-gray-400 mt-0.5">＋ 追加</div>
+            </div>
+            <button onclick="deleteColumn('${date}', event)" class="text-gray-300 hover:text-red-500 transition text-xs mt-0.5 cursor-pointer" title="この列を削除">✕</button>
+          </div>
           <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
-          <div class="text-xs text-gray-400 mt-0.5 no-print">＋ 追加</div>
         </th>`).join('');
 
       const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
