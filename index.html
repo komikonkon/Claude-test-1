@@ -22,7 +22,7 @@
 <!-- ═══════════════════════════════════════════════════
      SCREEN: Auth (login / signup)
 ═══════════════════════════════════════════════════ -->
-<div id="screen-auth" class="hidden min-h-screen flex items-center justify-center p-4">
+<div id="screen-auth" class="min-h-screen flex items-center justify-center p-4">
   <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
     <h1 class="text-2xl font-bold text-gray-800 mb-1 text-center">旅程表</h1>
     <p class="text-sm text-gray-400 text-center mb-6">旅のすべてを、ひとつの表に。</p>
@@ -208,8 +208,16 @@
 // ══════════════════════════════════════════════════
 const SUPABASE_URL  = 'https://ceqiwvaaxpgmtcuoqulh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlcWl3dmFheHBnbXRjdW9xdWxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMjI1NTUsImV4cCI6MjA5NDU5ODU1NX0.66nqe6Z7uxkfXMAf5d83k6tbXScN6_qJMk12LQYLbUo';
-const { createClient } = supabase;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let sb;
+try {
+  const { createClient } = supabase;
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (e) {
+  document.getElementById('auth-error').textContent = 'アプリの初期化に失敗しました: ' + e.message;
+  document.getElementById('auth-error').classList.remove('hidden');
+  throw e;
+}
 
 // ══════════════════════════════════════════════════
 // App state
