@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>旅程表</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+
+  <div class="max-w-5xl mx-auto">
+    <div class="flex items-center justify-between mb-6 no-print">
+      <h1 class="text-3xl font-bold text-gray-800">旅程表</h1>
+      <div class="flex gap-2">
+        <button onclick="clearAll()" class="px-4 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition">すべて削除</button>
+        <button onclick="window.print()" class="px-4 py-2 text-sm bg-gray-800 text-white rounded hover:bg-gray-700 transition">印刷 / PDF</button>
+      </div>
+    </div>
+
+    <!-- Trip title -->
+    <div class="bg-white rounded-xl shadow p-4 mb-4 no-print">
+      <label class="block text-sm font-medium text-gray-600 mb-1">旅行タイトル</label>
+      <input id="tripTitle" type="text" placeholder="例: 京都・大阪 3泊4日"
+        class="w-full border border-gray-300 rounded px-3 py-2 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+        oninput="saveTripTitle()" />
+    </div>
+
+    <!-- Print title (shown only when printing) -->
+    <div class="hidden print:block text-2xl font-bold text-center mb-4" id="printTitle"></div>
+
+    <!-- Add event form -->
+    <div class="bg-white rounded-xl shadow p-4 mb-6 no-print">
+      <h2 class="text-lg font-semibold text-gray-700 mb-3">イベント追加</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">日付</label>
+          <input id="eventDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">時刻（任意）</label>
+          <input id="eventTime" type="time" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-gray-500 mb-1">内容</label>
+          <input id="eventDesc" type="text" placeholder="例: 東京駅 出発（新幹線）"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            onkeydown="if(event.key==='Enter') addEvent()" />
+        </div>
+      </div>
+      <div class="flex justify-end mt-3">
+        <button onclick="addEvent()" class="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm font-medium">追加</button>
+      </div>
+    </div>
+
+    <!-- Itinerary table -->
+    <div id="itinerary"></div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'travel_itinerary_v1';
+
+    let data = load();
+
+    function load() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { title: '', events: [] };
+      } catch {
+        return { title: '', events: [] };
+      }
+    }
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    function saveTripTitle() {
+      data.title = document.getElementById('tripTitle').value;
+      document.getElementById('printTitle').textContent = data.title;
+      save();
+    }
+
+    function addEvent() {
+      const date = document.getElementById('eventDate').value;
+      const time = document.getElementById('eventTime').value;
+      const desc = document.getElementById('eventDesc').value.trim();
+
+      if (!date || !desc) {
+        alert('日付と内容を入力してください。');
+        return;
+      }
+
+      data.events.push({ id: Date.now(), date, time, desc });
+      data.events.sort((a, b) => {
+        const da = a.date + (a.time || '00:00');
+        const db = b.date + (b.time || '00:00');
+        return da.localeCompare(db);
+      });
+      save();
+      render();
+
+      document.getElementById('eventTime').value = '';
+      document.getElementById('eventDesc').value = '';
+    }
+
+    function deleteEvent(id) {
+      data.events = data.events.filter(e => e.id !== id);
+      save();
+      render();
+    }
+
+    function clearAll() {
+      if (!confirm('すべてのイベントを削除しますか？')) return;
+      data.events = [];
+      save();
+      render();
+    }
+
+    function formatDate(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      const days = ['日', '月', '火', '水', '木', '金', '土'];
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${days[d.getDay()]}）`;
+    }
+
+    function groupByDate(events) {
+      const map = {};
+      for (const e of events) {
+        if (!map[e.date]) map[e.date] = [];
+        map[e.date].push(e);
+      }
+      return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+    }
+
+    function dayLabel(index) {
+      return `${index + 1}日目`;
+    }
+
+    function render() {
+      const container = document.getElementById('itinerary');
+
+      if (data.events.length === 0) {
+        container.innerHTML = `
+          <div class="text-center text-gray-400 py-16">
+            <div class="text-5xl mb-3">✈️</div>
+            <p class="text-lg">イベントがまだありません。上のフォームから追加してください。</p>
+          </div>`;
+        return;
+      }
+
+      const groups = groupByDate(data.events);
+
+      container.innerHTML = groups.map(([date, events], dayIndex) => `
+        <div class="mb-6">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded no-print">${dayLabel(dayIndex)}</span>
+            <h2 class="text-lg font-bold text-gray-700">${formatDate(date)}</h2>
+          </div>
+          <div class="bg-white rounded-xl shadow overflow-hidden">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-gray-50 text-gray-500 text-xs uppercase">
+                  <th class="px-4 py-2 text-left w-24">時刻</th>
+                  <th class="px-4 py-2 text-left">内容</th>
+                  <th class="px-4 py-2 w-10 no-print"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${events.map((e, i) => `
+                  <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-t border-gray-100">
+                    <td class="px-4 py-3 text-gray-500 font-mono">${e.time || '—'}</td>
+                    <td class="px-4 py-3 text-gray-800">${escapeHtml(e.desc)}</td>
+                    <td class="px-4 py-3 no-print">
+                      <button onclick="deleteEvent(${e.id})" class="text-red-400 hover:text-red-600 transition" title="削除">✕</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initialize
+    document.getElementById('tripTitle').value = data.title;
+    document.getElementById('printTitle').textContent = data.title;
+    render();
+  </script>
+</body>
+</html>
