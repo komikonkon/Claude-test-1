@@ -153,36 +153,41 @@
       }
 
       const groups = groupByDate(data.events);
+      const maxRows = Math.max(...groups.map(([, events]) => events.length));
 
-      container.innerHTML = groups.map(([date, events], dayIndex) => `
-        <div class="mb-6">
-          <div class="flex items-center gap-3 mb-2">
-            <span class="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded no-print">${dayLabel(dayIndex)}</span>
-            <h2 class="text-lg font-bold text-gray-700">${formatDate(date)}</h2>
-          </div>
-          <div class="bg-white rounded-xl shadow overflow-hidden">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="bg-gray-50 text-gray-500 text-xs uppercase">
-                  <th class="px-4 py-2 text-left w-24">時刻</th>
-                  <th class="px-4 py-2 text-left">内容</th>
-                  <th class="px-4 py-2 w-10 no-print"></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${events.map((e, i) => `
-                  <tr class="${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-t border-gray-100">
-                    <td class="px-4 py-3 text-gray-500 font-mono">${e.time || '—'}</td>
-                    <td class="px-4 py-3 text-gray-800">${escapeHtml(e.desc)}</td>
-                    <td class="px-4 py-3 no-print">
-                      <button onclick="deleteEvent(${e.id})" class="text-red-400 hover:text-red-600 transition" title="削除">✕</button>
-                    </td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `).join('');
+      const headerCells = groups.map(([date, ], i) => `
+        <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0">
+          <div class="text-xs font-bold text-blue-600 mb-1 no-print">${dayLabel(i)}</div>
+          <div class="text-sm font-bold text-gray-700">${formatDate(date)}</div>
+        </th>`).join('');
+
+      const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
+        const cells = groups.map(([, events]) => {
+          const e = events[rowIndex];
+          if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3"></td>`;
+          return `
+            <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <span class="text-xs text-gray-400 font-mono block">${e.time || '—'}</span>
+                  <span class="text-sm text-gray-800">${escapeHtml(e.desc)}</span>
+                </div>
+                <button onclick="deleteEvent(${e.id})" class="text-red-400 hover:text-red-600 transition flex-shrink-0 no-print" title="削除">✕</button>
+              </div>
+            </td>`;
+        }).join('');
+        return `<tr class="${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-t border-gray-100">${cells}</tr>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="bg-white rounded-xl shadow overflow-x-auto">
+          <table class="text-sm border-collapse w-full">
+            <thead>
+              <tr class="bg-gray-50 border-b border-gray-200">${headerCells}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </div>`;
     }
 
     function escapeHtml(str) {
