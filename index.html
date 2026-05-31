@@ -561,17 +561,14 @@ async function openTrip(tripId) {
     canEdit = sh && sh.permission === 'edit';
   }
 
-  // Load events, food items, and meal assignments in parallel
-  const [{ data: events }, , ] = await Promise.all([
-    sb.from('events')
-      .select('*')
-      .eq('trip_id', tripId)
-      .order('date')
-      .order('start_time', { nullsFirst: false })
-      .order('created_at'),
-    loadFoodItems(),
-    loadMealAssignments(),
-  ]);
+  // Load events（これが本体。失敗してもアプリは止めない）
+  const { data: events } = await sb
+    .from('events')
+    .select('*')
+    .eq('trip_id', tripId)
+    .order('date')
+    .order('start_time', { nullsFirst: false })
+    .order('created_at');
 
   currentEvents = events || [];
   sortEvents();
@@ -587,7 +584,16 @@ async function openTrip(tripId) {
   document.getElementById('event-form-wrapper').classList.toggle('hidden', !canEdit);
 
   cancelEdit();
+  // まず旅程表を描画（food_items / meal_assignments テーブルが未作成でも表示する）
+  foodItems = [];
+  mealAssignments = [];
   render();
+
+  // 食べ物・食事割り当ては任意機能。読み込めたら再描画する。
+  // テーブル未作成でも上の render() で旅程表は表示済みなので影響しない。
+  Promise.all([loadFoodItems(), loadMealAssignments()])
+    .then(() => render())
+    .catch(err => console.warn('food/meal load skipped:', err));
 }
 
 function goToTrips() {
@@ -1079,10 +1085,15 @@ async function loadFoodItems() {
     .select('*')
     .eq('user_id', currentUser.id)
     .order('created_at');
-  if (error) { console.error('food_items load error:', error); foodItems = []; return; }
+  if (error) {
+    // テーブル未作成などでも致命的にしない（旅程表は表示できる）
+    console.warn('food_items load skipped:', error.message);
+    foodItems = [];
+    return;
+  }
   foodItems = data || [];
 
-  // Pre-populate defaults on first use
+  // Pre-populate defaults on first use（エラーが無かった場合のみ）
   if (foodItems.length === 0) {
     const inserts = DEFAULT_FOODS.map(name => ({ user_id: currentUser.id, name }));
     const { data: inserted, error: ie } = await sb.from('food_items').insert(inserts).select();
