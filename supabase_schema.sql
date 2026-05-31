@@ -19,7 +19,8 @@ create table if not exists public.events (
   id         uuid primary key default gen_random_uuid(),
   trip_id    uuid not null references public.trips on delete cascade,
   date       date not null,
-  time       text not null default '',
+  start_time text not null default '',
+  end_time   text not null default '',
   description text not null,
   created_at timestamptz not null default now()
 );

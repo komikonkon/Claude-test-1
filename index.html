@@ -139,14 +139,11 @@
           <input id="eventDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <div>
-          <label class="block text-xs text-gray-500 mb-1">時間帯（任意）</label>
-          <div class="flex gap-1">
-            <button onclick="selectCategory('午前')" id="cat-午前"
-              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午前</button>
-            <button onclick="selectCategory('午後')" id="cat-午後"
-              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">午後</button>
-            <button onclick="selectCategory('夜')" id="cat-夜"
-              class="flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition">夜</button>
+          <label class="block text-xs text-gray-500 mb-1">時刻（任意）</label>
+          <div class="flex items-center gap-1">
+            <input id="eventStart" type="time" class="flex-1 min-w-0 border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <span class="text-gray-400 text-sm">〜</span>
+            <input id="eventEnd" type="time" class="flex-1 min-w-0 border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
         </div>
         <div class="sm:col-span-2">
@@ -234,13 +231,10 @@ try {
 // ══════════════════════════════════════════════════
 // App state
 // ══════════════════════════════════════════════════
-const CATEGORY_ORDER = { '午前': 0, '午後': 1, '夜': 2, '': 3 };
-
 let currentUser      = null;   // auth.User
 let currentTrip      = null;   // trips row
 let currentEvents    = [];     // events rows for current trip
 let canEdit          = false;  // edit permission flag
-let selectedCategory = '';
 let editingId        = null;   // uuid of event being edited
 
 // ══════════════════════════════════════════════════
@@ -512,9 +506,11 @@ async function openTrip(tripId) {
     .select('*')
     .eq('trip_id', tripId)
     .order('date')
+    .order('start_time', { nullsFirst: false })
     .order('created_at');
 
   currentEvents = events || [];
+  sortEvents();
 
   // Populate form fields
   document.getElementById('tripTitle').value = trip.title || '';
@@ -583,46 +579,31 @@ function clearDateRange() {
   saveDateRange();
 }
 
-// ── Category buttons ──
-
-function selectCategory(cat) {
-  selectedCategory = (selectedCategory === cat) ? '' : cat;
-  updateCategoryButtons();
-}
-
-function setCategory(cat) {
-  selectedCategory = cat || '';
-  updateCategoryButtons();
-}
-
-function updateCategoryButtons() {
-  ['午前', '午後', '夜'].forEach(c => {
-    document.getElementById('cat-' + c).className = c === selectedCategory
-      ? 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition'
-      : 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400 transition';
-  });
-}
-
 // ── Event CRUD ──
 
 async function addEvent() {
   if (!canEdit) return;
-  const date = document.getElementById('eventDate').value;
-  const desc = document.getElementById('eventDesc').value.trim();
+  const date  = document.getElementById('eventDate').value;
+  const start = document.getElementById('eventStart').value;
+  const end   = document.getElementById('eventEnd').value;
+  const desc  = document.getElementById('eventDesc').value.trim();
   if (!date || !desc) { alert('日付と内容を入力してください。'); return; }
+  if (start && end && end < start) { alert('終了時刻は開始時刻より後にしてください。'); return; }
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
+
+  const fields = { date, start_time: start, end_time: end, description: desc };
 
   if (editingId !== null) {
     // Update existing
     const { error } = await sb
       .from('events')
-      .update({ date, time: selectedCategory, description: desc })
+      .update(fields)
       .eq('id', editingId);
     if (error) { alert(error.message); btn.disabled = false; return; }
     const idx = currentEvents.findIndex(e => e.id === editingId);
-    if (idx !== -1) Object.assign(currentEvents[idx], { date, time: selectedCategory, description: desc });
+    if (idx !== -1) Object.assign(currentEvents[idx], fields);
   } else {
     // Restore excluded date if needed
     const excluded = currentTrip.excluded_dates || [];
@@ -635,7 +616,7 @@ async function addEvent() {
 
     const { data: newEv, error } = await sb
       .from('events')
-      .insert({ trip_id: currentTrip.id, date, time: selectedCategory, description: desc })
+      .insert({ trip_id: currentTrip.id, ...fields })
       .select()
       .single();
     if (error) { alert(error.message); btn.disabled = false; return; }
@@ -653,8 +634,9 @@ function editEvent(id) {
   if (!e) return;
   editingId = id;
   document.getElementById('eventDate').value  = e.date;
+  document.getElementById('eventStart').value = e.start_time || '';
+  document.getElementById('eventEnd').value   = e.end_time || '';
   document.getElementById('eventDesc').value  = e.description;
-  setCategory(e.time);
   document.getElementById('formTitle').textContent  = 'イベント編集';
   document.getElementById('submitBtn').textContent   = '更新';
   document.getElementById('cancelBtn').classList.remove('hidden');
@@ -665,8 +647,9 @@ function editEvent(id) {
 function cancelEdit() {
   editingId = null;
   document.getElementById('eventDate').value  = '';
+  document.getElementById('eventStart').value = '';
+  document.getElementById('eventEnd').value   = '';
   document.getElementById('eventDesc').value  = '';
-  setCategory('');
   document.getElementById('formTitle').textContent = 'イベント追加';
   document.getElementById('submitBtn').textContent  = '追加';
   document.getElementById('cancelBtn').classList.add('hidden');
@@ -710,7 +693,10 @@ async function deleteColumn(date, ev) {
 function sortEvents() {
   currentEvents.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return (CATEGORY_ORDER[a.time] ?? 3) - (CATEGORY_ORDER[b.time] ?? 3);
+    // 時刻あり → 時刻順。時刻なし（空）は末尾へ。
+    const ta = a.start_time || '99:99';
+    const tb = b.start_time || '99:99';
+    return ta.localeCompare(tb);
   });
 }
 
@@ -746,10 +732,12 @@ function groupByDate(events) {
   return map;
 }
 
-function categoryBadge(cat) {
-  if (!cat) return '';
-  const colors = { '午前': 'bg-sky-100 text-sky-700', '午後': 'bg-orange-100 text-orange-700', '夜': 'bg-indigo-100 text-indigo-700' };
-  return `<span class="inline-block text-xs px-2 py-0.5 rounded-full font-medium ${colors[cat] || ''} mb-1">${cat}</span>`;
+function timeBadge(e) {
+  const start = e.start_time || '';
+  const end   = e.end_time || '';
+  if (!start && !end) return '';
+  const label = start && end ? `${start}〜${end}` : (start ? `${start}〜` : `〜${end}`);
+  return `<span class="inline-block text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700 mb-1">${label}</span>`;
 }
 
 function dayBg(dateStr) {
@@ -825,7 +813,7 @@ function render() {
         <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg}">
           <div class="flex items-start justify-between gap-2">
             <div>
-              ${categoryBadge(e.time)}
+              ${timeBadge(e)}
               <div class="text-sm text-gray-800">${escapeHtml(e.description)}</div>
             </div>
             ${canEdit ? `
