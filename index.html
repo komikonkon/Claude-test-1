@@ -63,6 +63,7 @@
       <h1 class="text-2xl font-bold text-gray-800">旅程表</h1>
       <div class="flex items-center gap-2">
         <span id="user-email-label" class="text-xs text-gray-400 hidden sm:block"></span>
+        <button onclick="openFoodScreen('trips')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">🍽 食べ物マスタ</button>
         <button onclick="logout()" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">ログアウト</button>
       </div>
     </div>
@@ -98,6 +99,7 @@
         ← 旅一覧
       </button>
       <div class="flex gap-2">
+        <button onclick="openFoodScreen('detail')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">🍽 食べ物</button>
         <button onclick="openShareModal()" class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition">共有</button>
         <button onclick="window.print()" class="px-3 py-1.5 text-sm bg-gray-800 text-white rounded hover:bg-gray-700 transition">印刷 / PDF</button>
         <button onclick="deleteTrip()" class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition">削除</button>
@@ -169,6 +171,39 @@
 
     <!-- Itinerary table -->
     <div id="itinerary"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: Food master
+═══════════════════════════════════════════════════ -->
+<div id="screen-food" class="hidden min-h-screen p-4">
+  <div class="max-w-lg mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <button onclick="closeFoodScreen()" class="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition">
+        ← 戻る
+      </button>
+      <h1 class="text-xl font-bold text-gray-800">🍽 食べ物マスタ</h1>
+      <div class="w-16"></div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <h2 class="text-sm font-semibold text-gray-600 mb-3">食べ物を追加</h2>
+      <div class="flex gap-2">
+        <input id="new-food-name" type="text" placeholder="例: 一蘭ラーメン"
+          class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+          onkeydown="if(event.key==='Enter') addFoodItem()" />
+        <button onclick="addFoodItem()" class="px-4 py-2 bg-orange-500 text-white rounded text-sm hover:bg-orange-600 transition font-medium">追加</button>
+      </div>
+      <div id="food-error" class="hidden mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="text-sm font-semibold text-gray-600 mb-3">食べ物リスト</h2>
+      <div id="food-items-list" class="space-y-1.5">
+        <div class="text-gray-400 text-sm text-center py-4">読み込み中…</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -246,12 +281,28 @@ let currentEvents    = [];     // events rows for current trip
 let canEdit          = false;  // edit permission flag
 let editingId        = null;   // uuid of event being edited
 let selectedKind     = 'plan'; // 'plan' | 'meal'
+let foodItems        = [];     // food_items rows for current user
+let mealAssignments  = [];     // meal_assignments rows for current trip
+let foodScreenFrom   = 'trips'; // which screen to return to from food master
+
+const MEAL_SLOTS = [
+  { key: 'breakfast', label: '朝食' },
+  { key: 'lunch',     label: '昼食' },
+  { key: 'dinner',    label: '夕食' },
+];
+
+const DEFAULT_FOODS = [
+  '卍ラーメン', 'サムギョプサル', 'しゃぶしゃぶ', '焼肉 肉テラス', '牛タンねぎし',
+  '冷麺', '湯葉', '漬物', 'トマトラーメン', '焼き魚', 'ローストビーフ丼',
+  '卵かけご飯', 'ネギサラダ', 'いきなりステーキ', '焼き鳥', 'ファミチキ',
+  '屋台の焼きそば', 'キムチきゅうり', 'きゅうりの一本漬け',
+];
 
 // ══════════════════════════════════════════════════
 // Screen helpers
 // ══════════════════════════════════════════════════
 function showScreen(id) {
-  ['screen-auth', 'screen-trips', 'screen-detail'].forEach(s => {
+  ['screen-auth', 'screen-trips', 'screen-detail', 'screen-food'].forEach(s => {
     document.getElementById(s).classList.add('hidden');
   });
   document.getElementById(id).classList.remove('hidden');
@@ -510,14 +561,17 @@ async function openTrip(tripId) {
     canEdit = sh && sh.permission === 'edit';
   }
 
-  // Load events
-  const { data: events } = await sb
-    .from('events')
-    .select('*')
-    .eq('trip_id', tripId)
-    .order('date')
-    .order('start_time', { nullsFirst: false })
-    .order('created_at');
+  // Load events, food items, and meal assignments in parallel
+  const [{ data: events }, , ] = await Promise.all([
+    sb.from('events')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('date')
+      .order('start_time', { nullsFirst: false })
+      .order('created_at'),
+    loadFoodItems(),
+    loadMealAssignments(),
+  ]);
 
   currentEvents = events || [];
   sortEvents();
@@ -825,8 +879,6 @@ function render() {
   const groups   = allDates.map(date => [date, eventMap[date] || []]);
   const maxRows  = Math.max(1, ...groups.map(([, evs]) => evs.length));
 
-  const colClickAttr = canEdit ? `onclick="selectDate('{DATE}')"` : '';
-
   const headerCells = groups.map(([date], i) => `
     <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 ${canEdit ? 'cursor-pointer' : ''} select-none group ${dayBg(date)}"
         ${canEdit ? `onclick="selectDate('${date}')"` : ''}>
@@ -840,6 +892,29 @@ function render() {
       </div>
       <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
     </th>`).join('');
+
+  // Meal slot rows (朝食/昼食/夕食) — always shown, one row per slot
+  const mealRows = MEAL_SLOTS.map(({ key, label }) => {
+    const cells = groups.map(([date]) => {
+      const bg = dayBg(date);
+      const inner = canEdit ? mealSelectHtml(date, key) : mealDisplayHtml(date, key);
+      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-1.5 ${bg}">
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs font-medium text-orange-500 w-7 flex-shrink-0">${label}</span>
+          <div class="flex-1 min-w-0">${inner}</div>
+        </div>
+      </td>`;
+    }).join('');
+    return `<tr class="border-t border-orange-100 bg-orange-50/40">${cells}</tr>`;
+  }).join('');
+
+  // Separator row between meals and plan events
+  const separatorCells = groups.map(([date]) =>
+    `<td class="border-r border-gray-100 last:border-r-0 px-4 py-1 ${dayBg(date)}">
+      <span class="text-xs text-gray-300">── 予定 ──</span>
+    </td>`
+  ).join('');
+  const separatorRow = `<tr class="border-t border-gray-200">${separatorCells}</tr>`;
 
   const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
     const cells = groups.map(([date, evs]) => {
@@ -871,7 +946,11 @@ function render() {
         <thead>
           <tr class="bg-gray-50 border-b border-gray-200">${headerCells}</tr>
         </thead>
-        <tbody>${bodyRows}</tbody>
+        <tbody>
+          ${mealRows}
+          ${separatorRow}
+          ${bodyRows}
+        </tbody>
       </table>
     </div>`;
 }
@@ -947,6 +1026,160 @@ async function removeShare(shareId) {
   const { error } = await sb.from('trip_shares').delete().eq('id', shareId);
   if (error) { alert(error.message); return; }
   await refreshShareList();
+}
+
+// ══════════════════════════════════════════════════
+// Food master screen
+// ══════════════════════════════════════════════════
+
+async function loadFoodItems() {
+  const { data, error } = await sb
+    .from('food_items')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .order('created_at');
+  if (error) { console.error('food_items load error:', error); foodItems = []; return; }
+  foodItems = data || [];
+
+  // Pre-populate defaults on first use
+  if (foodItems.length === 0) {
+    const inserts = DEFAULT_FOODS.map(name => ({ user_id: currentUser.id, name }));
+    const { data: inserted, error: ie } = await sb.from('food_items').insert(inserts).select();
+    if (!ie) foodItems = inserted || [];
+  }
+}
+
+function renderFoodList() {
+  const el = document.getElementById('food-items-list');
+  if (!el) return;
+  if (foodItems.length === 0) {
+    el.innerHTML = '<div class="text-gray-400 text-sm text-center py-4">食べ物が登録されていません。</div>';
+    return;
+  }
+  el.innerHTML = foodItems.map(f => `
+    <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-orange-50 border border-orange-100">
+      <span class="text-sm text-gray-800">${escapeHtml(f.name)}</span>
+      <button onclick="deleteFoodItem('${f.id}')" class="text-gray-400 hover:text-red-500 transition text-xs ml-3">✕</button>
+    </div>`).join('');
+}
+
+function openFoodScreen(from) {
+  foodScreenFrom = from || 'trips';
+  showScreen('screen-food');
+  loadFoodItems().then(() => renderFoodList());
+}
+
+function closeFoodScreen() {
+  showScreen('screen-' + foodScreenFrom);
+}
+
+async function addFoodItem() {
+  const input = document.getElementById('new-food-name');
+  const name = input.value.trim();
+  const errEl = document.getElementById('food-error');
+  errEl.classList.add('hidden');
+
+  if (!name) { input.focus(); return; }
+
+  const { data, error } = await sb
+    .from('food_items')
+    .insert({ user_id: currentUser.id, name })
+    .select()
+    .single();
+
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  foodItems.push(data);
+  input.value = '';
+  renderFoodList();
+  // Refresh dropdowns if on detail screen
+  if (foodScreenFrom === 'detail') render();
+}
+
+async function deleteFoodItem(id) {
+  const { error } = await sb.from('food_items').delete().eq('id', id);
+  if (error) { alert(error.message); return; }
+  foodItems = foodItems.filter(f => f.id !== id);
+  // Also clear meal assignments that used this item
+  mealAssignments = mealAssignments.map(a =>
+    a.food_item_id === id ? { ...a, food_item_id: null } : a
+  );
+  renderFoodList();
+  if (foodScreenFrom === 'detail') render();
+}
+
+// ══════════════════════════════════════════════════
+// Meal assignments
+// ══════════════════════════════════════════════════
+
+async function loadMealAssignments() {
+  if (!currentTrip) { mealAssignments = []; return; }
+  const { data, error } = await sb
+    .from('meal_assignments')
+    .select('*')
+    .eq('trip_id', currentTrip.id);
+  if (error) { console.error('meal_assignments load error:', error); mealAssignments = []; return; }
+  mealAssignments = data || [];
+}
+
+async function setMealAssignment(date, slot, foodItemId) {
+  if (!canEdit || !currentTrip) return;
+  const existing = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
+  const fid = foodItemId || null;
+
+  if (existing) {
+    const { error } = await sb
+      .from('meal_assignments')
+      .update({ food_item_id: fid })
+      .eq('id', existing.id);
+    if (error) { alert(error.message); render(); return; }
+    existing.food_item_id = fid;
+  } else if (fid) {
+    const { data, error } = await sb
+      .from('meal_assignments')
+      .upsert(
+        { trip_id: currentTrip.id, date, meal_slot: slot, food_item_id: fid },
+        { onConflict: 'trip_id,date,meal_slot' }
+      )
+      .select()
+      .single();
+    if (error) { alert(error.message); render(); return; }
+    if (data) mealAssignments.push(data);
+  }
+  render();
+}
+
+function mealSelectHtml(date, slot) {
+  const assignedIds = new Set(
+    mealAssignments.filter(a => a.food_item_id).map(a => a.food_item_id)
+  );
+  const current = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
+  const currentId = current ? current.food_item_id : null;
+
+  const available = foodItems.filter(f => !assignedIds.has(f.id) || f.id === currentId);
+
+  const options = [
+    `<option value="">—</option>`,
+    ...available.map(f =>
+      `<option value="${f.id}"${f.id === currentId ? ' selected' : ''}>${escapeHtml(f.name)}</option>`
+    ),
+  ].join('');
+
+  const cls = currentId
+    ? 'w-full text-xs border border-orange-300 rounded px-1 py-1 bg-white text-orange-800 cursor-pointer'
+    : 'w-full text-xs border border-gray-200 rounded px-1 py-1 bg-gray-50 text-gray-400 cursor-pointer';
+
+  return `<select class="${cls}" onchange="setMealAssignment('${date}','${slot}',this.value)">${options}</select>`;
+}
+
+function mealDisplayHtml(date, slot) {
+  const current = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
+  if (!current || !current.food_item_id) return '<span class="text-xs text-gray-300">—</span>';
+  const item = foodItems.find(f => f.id === current.food_item_id);
+  return `<span class="text-xs text-orange-700">${item ? escapeHtml(item.name) : '—'}</span>`;
 }
 
 // ══════════════════════════════════════════════════
