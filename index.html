@@ -794,6 +794,16 @@ function selectDate(date) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// 時刻セルをクリック → 日付＋開始時刻を入力欄にセット
+function selectDateHour(date, time) {
+  if (!canEdit) return;
+  cancelEdit();
+  document.getElementById('eventDate').value  = date;
+  document.getElementById('eventStart').value = time;
+  document.getElementById('eventDesc').focus();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function formatDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   const days = ['日', '月', '火', '水', '木', '金', '土'];
@@ -875,12 +885,10 @@ function render() {
     return;
   }
 
-  const eventMap = groupByDate(currentEvents);
-  const groups   = allDates.map(date => [date, eventMap[date] || []]);
-  const maxRows  = Math.max(1, ...groups.map(([, evs]) => evs.length));
-
+  // ── ヘッダー（左上の時刻軸セル + 日付列） ──
+  const cornerTh = `<th class="bg-gray-100 border-r border-b border-gray-200 w-16 min-w-[4rem] sticky left-0 z-10"></th>`;
   const headerCells = groups.map(([date], i) => `
-    <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[200px] last:border-r-0 ${canEdit ? 'cursor-pointer' : ''} select-none group ${dayBg(date)}"
+    <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[180px] last:border-r-0 ${canEdit ? 'cursor-pointer' : ''} select-none group ${dayBg(date)}"
         ${canEdit ? `onclick="selectDate('${date}')"` : ''}>
       <div class="flex items-start justify-between no-print">
         <div>
@@ -893,63 +901,96 @@ function render() {
       <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
     </th>`).join('');
 
-  // Meal slot rows (朝食/昼食/夕食) — always shown, one row per slot
+  // ── 食事スロット行（朝食/昼食/夕食）。ラベルは左軸へ ──
   const mealRows = MEAL_SLOTS.map(({ key, label }) => {
+    const labelCell = `<td class="bg-orange-50 border-r border-orange-100 px-1 py-1.5 text-center align-middle sticky left-0 z-10">
+      <span class="text-xs font-medium text-orange-500">${label}</span>
+    </td>`;
     const cells = groups.map(([date]) => {
       const bg = dayBg(date);
       const inner = canEdit ? mealSelectHtml(date, key) : mealDisplayHtml(date, key);
-      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-1.5 ${bg}">
-        <div class="flex items-center gap-1.5">
-          <span class="text-xs font-medium text-orange-500 w-7 flex-shrink-0">${label}</span>
-          <div class="flex-1 min-w-0">${inner}</div>
-        </div>
-      </td>`;
+      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-1.5 ${bg}">${inner}</td>`;
     }).join('');
-    return `<tr class="border-t border-orange-100 bg-orange-50/40">${cells}</tr>`;
+    return `<tr class="border-t border-orange-100 bg-orange-50/40">${labelCell}${cells}</tr>`;
   }).join('');
 
-  // Separator row between meals and plan events
-  const separatorCells = groups.map(([date]) =>
-    `<td class="border-r border-gray-100 last:border-r-0 px-4 py-1 ${dayBg(date)}">
-      <span class="text-xs text-gray-300">── 予定 ──</span>
-    </td>`
-  ).join('');
-  const separatorRow = `<tr class="border-t border-gray-200">${separatorCells}</tr>`;
+  // ── 予定セクション：時刻軸（1時間=1行） ──
+  // 表示する時間帯の範囲を決定（既定 7:00〜22:00、イベントがあれば拡張）
+  let minHour = 7, maxHour = 22;
+  const timed = currentEvents.filter(e => e.start_time);
+  for (const e of timed) {
+    const h = parseInt(e.start_time.slice(0, 2), 10);
+    if (!isNaN(h)) { minHour = Math.min(minHour, h); maxHour = Math.max(maxHour, h); }
+  }
 
-  const bodyRows = Array.from({ length: maxRows }, (_, rowIndex) => {
-    const cells = groups.map(([date, evs]) => {
-      const e = evs[rowIndex];
-      const colBg = e && e.id === editingId ? 'bg-blue-50' : dayBg(date);
-      if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3 ${colBg}"></td>`;
-      const mealAccent = e.kind === 'meal' ? 'border-l-4 border-orange-400' : '';
-      return `
-        <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg} ${mealAccent}">
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              ${timeBadge(e)}
-              <div class="text-sm text-gray-800"><span class="mr-1">${kindIcon(e)}</span>${escapeHtml(e.description)}</div>
-            </div>
-            ${canEdit ? `
-            <div class="flex gap-1 flex-shrink-0 no-print">
-              <button onclick="editEvent('${e.id}')" class="text-gray-400 hover:text-blue-500 transition text-xs" title="編集">✎</button>
-              <button onclick="deleteEvent('${e.id}')" class="text-gray-400 hover:text-red-500 transition text-xs" title="削除">✕</button>
-            </div>` : ''}
+  // date -> hour -> events[]
+  function eventsAt(date, hour) {
+    return currentEvents.filter(e => {
+      if (e.date !== date || !e.start_time) return false;
+      return parseInt(e.start_time.slice(0, 2), 10) === hour;
+    });
+  }
+
+  function eventCardHtml(e) {
+    const editing = e.id === editingId;
+    const accent = e.kind === 'meal' ? 'bg-orange-50 border-orange-300' : 'bg-blue-50 border-blue-200';
+    return `
+      <div class="rounded border ${accent} ${editing ? 'ring-2 ring-blue-400' : ''} px-2 py-1 mb-1">
+        <div class="flex items-start justify-between gap-1">
+          <div class="min-w-0">
+            ${timeBadge(e)}
+            <div class="text-sm text-gray-800 break-words"><span class="mr-1">${kindIcon(e)}</span>${escapeHtml(e.description)}</div>
           </div>
-        </td>`;
+          ${canEdit ? `
+          <div class="flex gap-1 flex-shrink-0 no-print">
+            <button onclick="event.stopPropagation();editEvent('${e.id}')" class="text-gray-400 hover:text-blue-500 transition text-xs" title="編集">✎</button>
+            <button onclick="event.stopPropagation();deleteEvent('${e.id}')" class="text-gray-400 hover:text-red-500 transition text-xs" title="削除">✕</button>
+          </div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  // 時刻未定（start_time 空）の予定行
+  const hasUntimed = currentEvents.some(e => !e.start_time);
+  let untimedRow = '';
+  if (hasUntimed) {
+    const cells = groups.map(([date]) => {
+      const evs = currentEvents.filter(e => e.date === date && !e.start_time);
+      const bg = dayBg(date);
+      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-2 align-top ${bg}">${evs.map(eventCardHtml).join('')}</td>`;
     }).join('');
-    return `<tr class="${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-t border-gray-100">${cells}</tr>`;
-  }).join('');
+    untimedRow = `<tr class="border-t border-gray-200">
+      <td class="bg-gray-50 border-r border-gray-200 px-1 py-2 text-center align-top sticky left-0 z-10">
+        <span class="text-xs text-gray-400 leading-tight">時刻<br>未定</span>
+      </td>${cells}</tr>`;
+  }
+
+  // 時刻軸の各行
+  let hourRows = '';
+  for (let h = minHour; h <= maxHour; h++) {
+    const hh = String(h).padStart(2, '0');
+    const labelCell = `<td class="bg-gray-50 border-r border-gray-200 px-1 py-2 text-right align-top sticky left-0 z-10">
+      <span class="text-xs text-gray-400">${h}:00</span>
+    </td>`;
+    const cells = groups.map(([date]) => {
+      const evs = eventsAt(date, h);
+      const bg = dayBg(date);
+      const clickAttr = canEdit ? `onclick="selectDateHour('${date}','${hh}:00')" class="cursor-pointer border-r border-gray-100 last:border-r-0 px-2 py-1 align-top ${bg} hover:bg-blue-50/40 transition"` : `class="border-r border-gray-100 last:border-r-0 px-2 py-1 align-top ${bg}"`;
+      return `<td ${clickAttr}>${evs.map(eventCardHtml).join('')}</td>`;
+    }).join('');
+    hourRows += `<tr class="border-t border-gray-100">${labelCell}${cells}</tr>`;
+  }
 
   container.innerHTML = `
     <div class="bg-white rounded-xl shadow overflow-x-auto">
       <table class="text-sm border-collapse w-full">
         <thead>
-          <tr class="bg-gray-50 border-b border-gray-200">${headerCells}</tr>
+          <tr class="bg-gray-50 border-b border-gray-200">${cornerTh}${headerCells}</tr>
         </thead>
         <tbody>
           ${mealRows}
-          ${separatorRow}
-          ${bodyRows}
+          ${untimedRow}
+          ${hourRows}
         </tbody>
       </table>
     </div>`;
