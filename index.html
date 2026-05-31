@@ -209,10 +209,22 @@
 const SUPABASE_URL  = 'https://ceqiwvaaxpgmtcuoqulh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlcWl3dmFheHBnbXRjdW9xdWxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMjI1NTUsImV4cCI6MjA5NDU5ODU1NX0.66nqe6Z7uxkfXMAf5d83k6tbXScN6_qJMk12LQYLbUo';
 
+// navigator.locks を使わない no-op ロック。
+// 既定の navigatorLock はタブ切替時にデッドロックし、トークン更新を待つ
+// 全クエリ・signOut がハングする原因になるため無効化する（1タブ完結アプリのため問題なし）。
+const noopLock = async (name, acquireTimeout, fn) => await fn();
+
 let sb;
 try {
   const { createClient } = supabase;
-  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      lock: noopLock,
+    },
+  });
 } catch (e) {
   document.getElementById('auth-error').textContent = 'アプリの初期化に失敗しました: ' + e.message;
   document.getElementById('auth-error').classList.remove('hidden');
@@ -321,13 +333,14 @@ async function authSubmit() {
 }
 
 async function logout() {
-  if (!sb) { showScreen('screen-auth'); return; }
-  try {
-    await sb.auth.signOut();
-  } catch (e) {
-    console.error('logout error:', e);
-    showScreen('screen-auth');
+  // サーバー応答を待たず、ローカルセッションを消して即ログイン画面へ
+  currentUser = null;
+  currentTrip = null;
+  currentEvents = [];
+  if (sb) {
+    sb.auth.signOut({ scope: 'local' }).catch(e => console.error('logout error:', e));
   }
+  showScreen('screen-auth');
 }
 
 // ══════════════════════════════════════════════════
