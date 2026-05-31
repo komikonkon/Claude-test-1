@@ -908,8 +908,8 @@ function render() {
     return h * 60 + (isNaN(m) ? 0 : m);
   };
 
-  // 表示時間帯の決定（既定 7:00〜22:00、イベントに合わせて拡張）
-  let firstHour = 7, lastHour = 22;
+  // 表示時間帯の決定（既定 5:00〜22:00、イベントに合わせて拡張）
+  let firstHour = 5, lastHour = 22;
   let maxEndMin = 0, minStartMin = 24 * 60;
   for (const e of currentEvents) {
     const s = parseTime(e.start_time);
@@ -920,7 +920,7 @@ function render() {
     maxEndMin   = Math.max(maxEndMin, en);
   }
   if (maxEndMin > 0) {
-    firstHour = Math.min(7, Math.floor(minStartMin / 60));
+    firstHour = Math.min(5, Math.floor(minStartMin / 60));
     lastHour  = Math.max(22, Math.ceil(maxEndMin / 60) - 1);
   }
   const hourCount = lastHour - firstHour + 1;
@@ -973,6 +973,15 @@ function render() {
       </div>`;
   }
 
+  // 食事スロットごとの行高（全日付で最も件数の多い日に合わせて揃える）
+  const slotHeights = {};
+  MEAL_SLOTS.forEach(m => {
+    let maxc = 0;
+    dates.forEach(d => { maxc = Math.max(maxc, slotAssignments(d, m.key).length); });
+    const extra = canEdit ? 1 : 0; // 追加用セレクトのぶん
+    slotHeights[m.key] = Math.max(MEAL_PX, (maxc + extra) * 26 + 8);
+  });
+
   // ── 時刻軸カラム ──
   let axisHours = '';
   for (let h = firstHour; h <= lastHour; h++) {
@@ -984,7 +993,7 @@ function render() {
   const axisCol = `
     <div class="flex-shrink-0 border-r border-gray-200 bg-gray-50" style="width:${AXIS_W}px;">
       <div style="height:${HEADER_PX}px;" class="border-b border-gray-200"></div>
-      ${MEAL_SLOTS.map(m => `<div class="flex items-center justify-center border-b border-orange-100 bg-orange-50" style="height:${MEAL_PX}px;"><span class="text-xs font-medium text-orange-500">${m.label}</span></div>`).join('')}
+      ${MEAL_SLOTS.map(m => `<div class="flex items-center justify-center border-b border-orange-100 bg-orange-50" style="height:${slotHeights[m.key]}px;"><span class="text-xs font-medium text-orange-500">${m.label}</span></div>`).join('')}
       ${hasUntimed ? `<div class="flex items-center justify-center border-b border-gray-200" style="height:${UNTIMED_PX}px;"><span class="text-xs text-gray-400 leading-tight text-center">時刻<br>未定</span></div>` : ''}
       <div>${axisHours}</div>
     </div>`;
@@ -1005,10 +1014,10 @@ function render() {
         </div>
       </div>`;
 
-    // 食事スロット
+    // 食事スロット（複数選択可）
     const meals = MEAL_SLOTS.map(m => {
       const inner = canEdit ? mealSelectHtml(date, m.key) : mealDisplayHtml(date, m.key);
-      return `<div class="flex items-center border-b border-orange-100 px-1.5 bg-orange-50/40 ${bg}" style="height:${MEAL_PX}px;">${inner}</div>`;
+      return `<div class="flex items-center border-b border-orange-100 px-1.5 py-1 bg-orange-50/40 ${bg} overflow-y-auto" style="height:${slotHeights[m.key]}px;">${inner}</div>`;
     }).join('');
 
     // 時刻未定
@@ -1221,61 +1230,67 @@ async function loadMealAssignments() {
   mealAssignments = data || [];
 }
 
-async function setMealAssignment(date, slot, foodItemId) {
-  if (!canEdit || !currentTrip) return;
-  const existing = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
-  const fid = foodItemId || null;
-
-  if (existing) {
-    const { error } = await sb
-      .from('meal_assignments')
-      .update({ food_item_id: fid })
-      .eq('id', existing.id);
-    if (error) { alert(error.message); render(); return; }
-    existing.food_item_id = fid;
-  } else if (fid) {
-    const { data, error } = await sb
-      .from('meal_assignments')
-      .upsert(
-        { trip_id: currentTrip.id, date, meal_slot: slot, food_item_id: fid },
-        { onConflict: 'trip_id,date,meal_slot' }
-      )
-      .select()
-      .single();
-    if (error) { alert(error.message); render(); return; }
-    if (data) mealAssignments.push(data);
-  }
+// 1スロットに1件追加（複数選択可）
+async function addMealAssignment(date, slot, foodItemId) {
+  if (!canEdit || !currentTrip || !foodItemId) { render(); return; }
+  const { data, error } = await sb
+    .from('meal_assignments')
+    .insert({ trip_id: currentTrip.id, date, meal_slot: slot, food_item_id: foodItemId })
+    .select()
+    .single();
+  if (error) { alert(error.message); render(); return; }
+  if (data) mealAssignments.push(data);
   render();
 }
 
-function mealSelectHtml(date, slot) {
-  const assignedIds = new Set(
-    mealAssignments.filter(a => a.food_item_id).map(a => a.food_item_id)
-  );
-  const current = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
-  const currentId = current ? current.food_item_id : null;
+// 割り当てを1件削除
+async function removeMealAssignment(assignmentId) {
+  if (!canEdit) return;
+  const { error } = await sb.from('meal_assignments').delete().eq('id', assignmentId);
+  if (error) { alert(error.message); return; }
+  mealAssignments = mealAssignments.filter(a => a.id !== assignmentId);
+  render();
+}
 
-  const available = foodItems.filter(f => !assignedIds.has(f.id) || f.id === currentId);
+// そのスロットの割り当て（food_item を解決して返す）
+function slotAssignments(date, slot) {
+  return mealAssignments
+    .filter(a => a.date === date && a.meal_slot === slot && a.food_item_id)
+    .map(a => ({ ...a, food: foodItems.find(f => f.id === a.food_item_id) }))
+    .filter(a => a.food);
+}
+
+// 食べ物チップ（編集可なら×ボタン付き）
+function foodChip(name, removeAttr) {
+  return `<span class="inline-flex items-center gap-0.5 rounded bg-white border border-orange-300 text-orange-800 text-xs px-1.5 py-0.5">
+    ${escapeHtml(name)}${removeAttr ? `<button ${removeAttr} class="text-orange-400 hover:text-red-500 leading-none ml-0.5">✕</button>` : ''}
+  </span>`;
+}
+
+function mealSelectHtml(date, slot) {
+  // どのスロットにも未割り当ての食べ物だけを追加候補に出す
+  const assignedIds = new Set(mealAssignments.filter(a => a.food_item_id).map(a => a.food_item_id));
+  const available = foodItems.filter(f => !assignedIds.has(f.id));
+  const chips = slotAssignments(date, slot)
+    .map(a => foodChip(a.food.name, `onclick="removeMealAssignment('${a.id}')"`))
+    .join('');
 
   const options = [
-    `<option value="">—</option>`,
-    ...available.map(f =>
-      `<option value="${f.id}"${f.id === currentId ? ' selected' : ''}>${escapeHtml(f.name)}</option>`
-    ),
+    `<option value="">＋ 追加</option>`,
+    ...available.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`),
   ].join('');
 
-  const cls = currentId
-    ? 'w-full text-xs border border-orange-300 rounded px-1 py-1 bg-white text-orange-800 cursor-pointer'
-    : 'w-full text-xs border border-gray-200 rounded px-1 py-1 bg-gray-50 text-gray-400 cursor-pointer';
-
-  return `<select class="${cls}" onchange="setMealAssignment('${date}','${slot}',this.value)">${options}</select>`;
+  return `<div class="flex flex-wrap items-center gap-1 w-full">
+    ${chips}
+    <select class="text-xs border border-gray-200 rounded px-1 py-0.5 bg-gray-50 text-gray-500 cursor-pointer"
+      onchange="addMealAssignment('${date}','${slot}',this.value); this.value='';">${options}</select>
+  </div>`;
 }
 
 function mealDisplayHtml(date, slot) {
-  const current = mealAssignments.find(a => a.date === date && a.meal_slot === slot);
-  if (!current || !current.food_item_id) return '<span class="text-xs text-gray-300">—</span>';
-  const item = foodItems.find(f => f.id === current.food_item_id);
-  return `<span class="text-xs text-orange-700">${item ? escapeHtml(item.name) : '—'}</span>`;
+  const items = slotAssignments(date, slot);
+  if (!items.length) return '<span class="text-xs text-gray-300">—</span>';
+  return `<div class="flex flex-wrap gap-1">${items.map(a => foodChip(a.food.name, '')).join('')}</div>`;
 }
 
 // ══════════════════════════════════════════════════
