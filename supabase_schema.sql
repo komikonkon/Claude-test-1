@@ -21,6 +21,7 @@ create table if not exists public.events (
   date       date not null,
   start_time text not null default '',
   end_time   text not null default '',
+  kind       text not null default 'plan' check (kind in ('plan', 'meal')),
   description text not null,
   created_at timestamptz not null default now()
 );

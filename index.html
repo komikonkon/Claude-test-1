@@ -139,6 +139,15 @@
           <input id="eventDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <div>
+          <label class="block text-xs text-gray-500 mb-1">種類</label>
+          <div class="flex gap-1">
+            <button type="button" onclick="setKind('plan')" id="kind-plan"
+              class="flex-1 py-2 text-sm rounded border transition">📍 予定</button>
+            <button type="button" onclick="setKind('meal')" id="kind-meal"
+              class="flex-1 py-2 text-sm rounded border transition">🍽 食事</button>
+          </div>
+        </div>
+        <div class="lg:col-span-2">
           <label class="block text-xs text-gray-500 mb-1">時刻（任意）</label>
           <div class="flex items-center gap-1">
             <input id="eventStart" type="time" class="flex-1 min-w-0 border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -146,9 +155,9 @@
             <input id="eventEnd" type="time" class="flex-1 min-w-0 border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
         </div>
-        <div class="sm:col-span-2">
+        <div class="lg:col-span-4">
           <label class="block text-xs text-gray-500 mb-1">内容</label>
-          <input id="eventDesc" type="text" placeholder="例: 東京駅 出発（新幹線）"
+          <input id="eventDesc" type="text" placeholder="例: 東京駅 出発（新幹線）／ 昼食：一蘭ラーメン"
             class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             onkeydown="if(event.key==='Enter') addEvent()" />
         </div>
@@ -236,6 +245,7 @@ let currentTrip      = null;   // trips row
 let currentEvents    = [];     // events rows for current trip
 let canEdit          = false;  // edit permission flag
 let editingId        = null;   // uuid of event being edited
+let selectedKind     = 'plan'; // 'plan' | 'meal'
 
 // ══════════════════════════════════════════════════
 // Screen helpers
@@ -579,6 +589,26 @@ function clearDateRange() {
   saveDateRange();
 }
 
+// ── Event kind (種類) ──
+
+function setKind(kind) {
+  selectedKind = kind;
+  updateKindButtons();
+}
+
+function updateKindButtons() {
+  const planEl = document.getElementById('kind-plan');
+  const mealEl = document.getElementById('kind-meal');
+  if (!planEl || !mealEl) return;
+  const off = 'flex-1 py-2 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-50 transition';
+  planEl.className = selectedKind === 'plan'
+    ? 'flex-1 py-2 text-sm rounded border border-blue-500 bg-blue-500 text-white transition'
+    : off;
+  mealEl.className = selectedKind === 'meal'
+    ? 'flex-1 py-2 text-sm rounded border border-orange-500 bg-orange-500 text-white transition'
+    : off;
+}
+
 // ── Event CRUD ──
 
 async function addEvent() {
@@ -593,7 +623,7 @@ async function addEvent() {
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
 
-  const fields = { date, start_time: start, end_time: end, description: desc };
+  const fields = { date, start_time: start, end_time: end, description: desc, kind: selectedKind };
 
   if (editingId !== null) {
     // Update existing
@@ -637,6 +667,7 @@ function editEvent(id) {
   document.getElementById('eventStart').value = e.start_time || '';
   document.getElementById('eventEnd').value   = e.end_time || '';
   document.getElementById('eventDesc').value  = e.description;
+  setKind(e.kind === 'meal' ? 'meal' : 'plan');
   document.getElementById('formTitle').textContent  = 'イベント編集';
   document.getElementById('submitBtn').textContent   = '更新';
   document.getElementById('cancelBtn').classList.remove('hidden');
@@ -650,6 +681,7 @@ function cancelEdit() {
   document.getElementById('eventStart').value = '';
   document.getElementById('eventEnd').value   = '';
   document.getElementById('eventDesc').value  = '';
+  setKind('plan');
   document.getElementById('formTitle').textContent = 'イベント追加';
   document.getElementById('submitBtn').textContent  = '追加';
   document.getElementById('cancelBtn').classList.add('hidden');
@@ -737,7 +769,12 @@ function timeBadge(e) {
   const end   = e.end_time || '';
   if (!start && !end) return '';
   const label = start && end ? `${start}〜${end}` : (start ? `${start}〜` : `〜${end}`);
-  return `<span class="inline-block text-xs px-2 py-0.5 rounded font-medium bg-blue-100 text-blue-700 mb-1">${label}</span>`;
+  const color = e.kind === 'meal' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
+  return `<span class="inline-block text-xs px-2 py-0.5 rounded font-medium ${color} mb-1">${label}</span>`;
+}
+
+function kindIcon(e) {
+  return e.kind === 'meal' ? '🍽' : '📍';
 }
 
 function dayBg(dateStr) {
@@ -809,12 +846,13 @@ function render() {
       const e = evs[rowIndex];
       const colBg = e && e.id === editingId ? 'bg-blue-50' : dayBg(date);
       if (!e) return `<td class="border-r border-gray-100 last:border-r-0 px-4 py-3 ${colBg}"></td>`;
+      const mealAccent = e.kind === 'meal' ? 'border-l-4 border-orange-400' : '';
       return `
-        <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg}">
+        <td class="border-r border-gray-100 last:border-r-0 px-4 py-3 align-top ${colBg} ${mealAccent}">
           <div class="flex items-start justify-between gap-2">
             <div>
               ${timeBadge(e)}
-              <div class="text-sm text-gray-800">${escapeHtml(e.description)}</div>
+              <div class="text-sm text-gray-800"><span class="mr-1">${kindIcon(e)}</span>${escapeHtml(e.description)}</div>
             </div>
             ${canEdit ? `
             <div class="flex gap-1 flex-shrink-0 no-print">
