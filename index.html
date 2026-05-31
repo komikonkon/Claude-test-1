@@ -891,6 +891,9 @@ function render() {
     return;
   }
 
+  // 各列は日付のみで構成（イベントは時刻軸の行で配置する）
+  const groups = allDates.map(date => [date]);
+
   // ── ヘッダー（左上の時刻軸セル + 日付列） ──
   const cornerTh = `<th class="bg-gray-100 border-r border-b border-gray-200 w-16 min-w-[4rem] sticky left-0 z-10"></th>`;
   const headerCells = groups.map(([date], i) => `
