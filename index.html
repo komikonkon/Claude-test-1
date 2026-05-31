@@ -919,10 +919,11 @@ function render() {
     minStartMin = Math.min(minStartMin, s);
     maxEndMin   = Math.max(maxEndMin, en);
   }
+  // 開始は常に 5:00 固定。終わりだけイベントに合わせて下に拡張する。
   if (maxEndMin > 0) {
-    firstHour = Math.min(5, Math.floor(minStartMin / 60));
-    lastHour  = Math.max(22, Math.ceil(maxEndMin / 60) - 1);
+    lastHour = Math.max(22, Math.ceil(maxEndMin / 60) - 1);
   }
+  const gridStartMin = firstHour * 60;
   const hourCount = lastHour - firstHour + 1;
   const gridH = hourCount * HOUR_PX;
 
@@ -953,8 +954,10 @@ function render() {
 
   function eventBlockHtml(it) {
     const { e, s, en, lane, cols } = it;
-    const top    = (s - firstHour * 60) / 60 * HOUR_PX;
-    const height = Math.max(22, (en - s) / 60 * HOUR_PX - 2);
+    // 5:00 より前に始まる予定は先頭にクランプ
+    const visS   = Math.max(s, gridStartMin);
+    const top    = (visS - gridStartMin) / 60 * HOUR_PX;
+    const height = Math.max(22, (en - visS) / 60 * HOUR_PX - 2);
     const widthPct = 100 / cols;
     const leftPct  = lane * widthPct;
     const editing = e.id === editingId;
@@ -991,7 +994,7 @@ function render() {
   }
   const hasUntimed = currentEvents.some(e => !e.start_time);
   const axisCol = `
-    <div class="flex-shrink-0 border-r border-gray-200 bg-gray-50" style="width:${AXIS_W}px;">
+    <div class="flex-shrink-0 border-r border-gray-200 bg-gray-50 sticky left-0 z-30" style="width:${AXIS_W}px;">
       <div style="height:${HEADER_PX}px;" class="border-b border-gray-200"></div>
       ${MEAL_SLOTS.map(m => `<div class="flex items-center justify-center border-b border-orange-100 bg-orange-50" style="height:${slotHeights[m.key]}px;"><span class="text-xs font-medium text-orange-500">${m.label}</span></div>`).join('')}
       ${hasUntimed ? `<div class="flex items-center justify-center border-b border-gray-200" style="height:${UNTIMED_PX}px;"><span class="text-xs text-gray-400 leading-tight text-center">時刻<br>未定</span></div>` : ''}
@@ -1039,7 +1042,14 @@ function render() {
       const clk = canEdit ? `onclick="selectDateHour('${date}','${hh}:00')"` : '';
       gridLines += `<div class="border-t border-gray-100 ${canEdit ? 'cursor-pointer hover:bg-blue-50/40' : ''}" style="height:${HOUR_PX}px;" ${clk}></div>`;
     }
-    const dayEvents = currentEvents.filter(e => e.date === date && e.start_time);
+    // 5:00 より前に完全に終わる予定はグリッドに出さない（時刻未定扱いではない）
+    const dayEvents = currentEvents.filter(e => {
+      if (e.date !== date || !e.start_time) return false;
+      let en = parseTime(e.end_time);
+      const s = parseTime(e.start_time);
+      if (en == null || en <= s) en = s + 60;
+      return en > gridStartMin;
+    });
     const blocks = layoutDay(dayEvents).map(eventBlockHtml).join('');
     const grid = `<div class="relative ${bg}" style="height:${gridH}px;">${gridLines}<div class="absolute inset-0">${blocks}</div></div>`;
 
