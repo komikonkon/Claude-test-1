@@ -891,117 +891,158 @@ function render() {
     return;
   }
 
-  // 各列は日付のみで構成（イベントは時刻軸の行で配置する）
-  const groups = allDates.map(date => [date]);
+  const dates = allDates;
 
-  // ── ヘッダー（左上の時刻軸セル + 日付列） ──
-  const cornerTh = `<th class="bg-gray-100 border-r border-b border-gray-200 w-16 min-w-[4rem] sticky left-0 z-10"></th>`;
-  const headerCells = groups.map(([date], i) => `
-    <th class="px-4 py-3 text-left border-r border-gray-200 min-w-[180px] last:border-r-0 ${canEdit ? 'cursor-pointer' : ''} select-none group ${dayBg(date)}"
-        ${canEdit ? `onclick="selectDate('${date}')"` : ''}>
-      <div class="flex items-start justify-between no-print">
-        <div>
-          <div class="text-xs font-bold text-blue-600 mb-1">${i + 1}日目</div>
-          <div class="text-sm font-bold text-gray-700 ${canEdit ? 'group-hover:text-blue-600' : ''} transition">${formatDate(date)}</div>
-          ${canEdit ? `<div class="text-xs text-gray-400 mt-0.5">＋ 追加</div>` : ''}
-        </div>
-        ${canEdit ? `<button onclick="deleteColumn('${date}', event)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition text-sm cursor-pointer leading-none" title="この列を削除">✕</button>` : ''}
-      </div>
-      <div class="print-only text-sm font-bold text-gray-700">${formatDate(date)}</div>
-    </th>`).join('');
+  // レイアウト定数（縦方向のピクセル）
+  const HOUR_PX   = 48;  // 1時間の高さ
+  const HEADER_PX = 70;  // ヘッダー部
+  const MEAL_PX   = 40;  // 食事スロット1行
+  const UNTIMED_PX = 56; // 時刻未定エリア
+  const COL_W     = 200; // 日付列の幅
+  const AXIS_W    = 56;  // 時刻軸の幅
 
-  // ── 食事スロット行（朝食/昼食/夕食）。ラベルは左軸へ ──
-  const mealRows = MEAL_SLOTS.map(({ key, label }) => {
-    const labelCell = `<td class="bg-orange-50 border-r border-orange-100 px-1 py-1.5 text-center align-middle sticky left-0 z-10">
-      <span class="text-xs font-medium text-orange-500">${label}</span>
-    </td>`;
-    const cells = groups.map(([date]) => {
-      const bg = dayBg(date);
-      const inner = canEdit ? mealSelectHtml(date, key) : mealDisplayHtml(date, key);
-      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-1.5 ${bg}">${inner}</td>`;
-    }).join('');
-    return `<tr class="border-t border-orange-100 bg-orange-50/40">${labelCell}${cells}</tr>`;
-  }).join('');
+  const parseTime = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':').map(n => parseInt(n, 10));
+    if (isNaN(h)) return null;
+    return h * 60 + (isNaN(m) ? 0 : m);
+  };
 
-  // ── 予定セクション：時刻軸（1時間=1行） ──
-  // 表示する時間帯の範囲を決定（既定 7:00〜22:00、イベントがあれば拡張）
-  let minHour = 7, maxHour = 22;
-  const timed = currentEvents.filter(e => e.start_time);
-  for (const e of timed) {
-    const h = parseInt(e.start_time.slice(0, 2), 10);
-    if (!isNaN(h)) { minHour = Math.min(minHour, h); maxHour = Math.max(maxHour, h); }
+  // 表示時間帯の決定（既定 7:00〜22:00、イベントに合わせて拡張）
+  let firstHour = 7, lastHour = 22;
+  let maxEndMin = 0, minStartMin = 24 * 60;
+  for (const e of currentEvents) {
+    const s = parseTime(e.start_time);
+    if (s == null) continue;
+    let en = parseTime(e.end_time);
+    if (en == null || en <= s) en = s + 60;
+    minStartMin = Math.min(minStartMin, s);
+    maxEndMin   = Math.max(maxEndMin, en);
   }
+  if (maxEndMin > 0) {
+    firstHour = Math.min(7, Math.floor(minStartMin / 60));
+    lastHour  = Math.max(22, Math.ceil(maxEndMin / 60) - 1);
+  }
+  const hourCount = lastHour - firstHour + 1;
+  const gridH = hourCount * HOUR_PX;
 
-  // date -> hour -> events[]
-  function eventsAt(date, hour) {
-    return currentEvents.filter(e => {
-      if (e.date !== date || !e.start_time) return false;
-      return parseInt(e.start_time.slice(0, 2), 10) === hour;
+  // 1日分のタイム済みイベントを重なり考慮でレイアウト
+  function layoutDay(evs) {
+    const items = evs.map(e => {
+      const s = parseTime(e.start_time);
+      let en = parseTime(e.end_time);
+      if (en == null || en <= s) en = s + 60;
+      return { e, s, en, lane: 0, cols: 1 };
+    }).sort((a, b) => a.s - b.s || a.en - b.en);
+
+    const laneEnds = []; // lane index -> 現在の終了時刻
+    items.forEach(it => {
+      let placed = -1;
+      for (let i = 0; i < laneEnds.length; i++) {
+        if (laneEnds[i] <= it.s) { placed = i; laneEnds[i] = it.en; break; }
+      }
+      if (placed < 0) { placed = laneEnds.length; laneEnds.push(it.en); }
+      it.lane = placed;
     });
+    items.forEach(it => {
+      const overlapping = items.filter(o => o.s < it.en && o.en > it.s);
+      it.cols = Math.max(...overlapping.map(o => o.lane)) + 1;
+    });
+    return items;
   }
 
-  function eventCardHtml(e) {
+  function eventBlockHtml(it) {
+    const { e, s, en, lane, cols } = it;
+    const top    = (s - firstHour * 60) / 60 * HOUR_PX;
+    const height = Math.max(22, (en - s) / 60 * HOUR_PX - 2);
+    const widthPct = 100 / cols;
+    const leftPct  = lane * widthPct;
     const editing = e.id === editingId;
-    const accent = e.kind === 'meal' ? 'bg-orange-50 border-orange-300' : 'bg-blue-50 border-blue-200';
+    const accent = e.kind === 'meal'
+      ? 'bg-orange-100 border-orange-400 text-orange-900'
+      : 'bg-blue-100 border-blue-400 text-blue-900';
+    const label = (e.start_time || '') + (e.end_time ? '〜' + e.end_time : '');
+    const clickAttr = canEdit ? `onclick="event.stopPropagation();editEvent('${e.id}')"` : '';
     return `
-      <div class="rounded border ${accent} ${editing ? 'ring-2 ring-blue-400' : ''} px-2 py-1 mb-1">
-        <div class="flex items-start justify-between gap-1">
-          <div class="min-w-0">
-            ${timeBadge(e)}
-            <div class="text-sm text-gray-800 break-words"><span class="mr-1">${kindIcon(e)}</span>${escapeHtml(e.description)}</div>
-          </div>
-          ${canEdit ? `
-          <div class="flex gap-1 flex-shrink-0 no-print">
-            <button onclick="event.stopPropagation();editEvent('${e.id}')" class="text-gray-400 hover:text-blue-500 transition text-xs" title="編集">✎</button>
-            <button onclick="event.stopPropagation();deleteEvent('${e.id}')" class="text-gray-400 hover:text-red-500 transition text-xs" title="削除">✕</button>
-          </div>` : ''}
-        </div>
+      <div class="absolute rounded border-l-4 ${accent} ${editing ? 'ring-2 ring-blue-500 z-20' : 'z-10'} px-1.5 py-0.5 overflow-hidden shadow-sm ${canEdit ? 'cursor-pointer hover:brightness-95' : ''}"
+           style="top:${top}px; height:${height}px; left:calc(${leftPct}% + 1px); width:calc(${widthPct}% - 2px);"
+           ${clickAttr} title="${escapeHtml(e.description)}">
+        ${label ? `<div class="text-[10px] font-semibold leading-tight">${label}</div>` : ''}
+        <div class="text-xs leading-tight break-words"><span class="mr-0.5">${kindIcon(e)}</span>${escapeHtml(e.description)}</div>
+        ${canEdit ? `<button onclick="event.stopPropagation();deleteEvent('${e.id}')" class="absolute top-0 right-0.5 text-gray-400 hover:text-red-500 text-xs no-print" title="削除">✕</button>` : ''}
       </div>`;
   }
 
-  // 時刻未定（start_time 空）の予定行
+  // ── 時刻軸カラム ──
+  let axisHours = '';
+  for (let h = firstHour; h <= lastHour; h++) {
+    axisHours += `<div class="relative border-t border-gray-200 text-right pr-1" style="height:${HOUR_PX}px;">
+      <span class="text-xs text-gray-400 -mt-2 inline-block">${h}:00</span>
+    </div>`;
+  }
   const hasUntimed = currentEvents.some(e => !e.start_time);
-  let untimedRow = '';
-  if (hasUntimed) {
-    const cells = groups.map(([date]) => {
-      const evs = currentEvents.filter(e => e.date === date && !e.start_time);
-      const bg = dayBg(date);
-      return `<td class="border-r border-gray-100 last:border-r-0 px-2 py-2 align-top ${bg}">${evs.map(eventCardHtml).join('')}</td>`;
-    }).join('');
-    untimedRow = `<tr class="border-t border-gray-200">
-      <td class="bg-gray-50 border-r border-gray-200 px-1 py-2 text-center align-top sticky left-0 z-10">
-        <span class="text-xs text-gray-400 leading-tight">時刻<br>未定</span>
-      </td>${cells}</tr>`;
-  }
+  const axisCol = `
+    <div class="flex-shrink-0 border-r border-gray-200 bg-gray-50" style="width:${AXIS_W}px;">
+      <div style="height:${HEADER_PX}px;" class="border-b border-gray-200"></div>
+      ${MEAL_SLOTS.map(m => `<div class="flex items-center justify-center border-b border-orange-100 bg-orange-50" style="height:${MEAL_PX}px;"><span class="text-xs font-medium text-orange-500">${m.label}</span></div>`).join('')}
+      ${hasUntimed ? `<div class="flex items-center justify-center border-b border-gray-200" style="height:${UNTIMED_PX}px;"><span class="text-xs text-gray-400 leading-tight text-center">時刻<br>未定</span></div>` : ''}
+      <div>${axisHours}</div>
+    </div>`;
 
-  // 時刻軸の各行
-  let hourRows = '';
-  for (let h = minHour; h <= maxHour; h++) {
-    const hh = String(h).padStart(2, '0');
-    const labelCell = `<td class="bg-gray-50 border-r border-gray-200 px-1 py-2 text-right align-top sticky left-0 z-10">
-      <span class="text-xs text-gray-400">${h}:00</span>
-    </td>`;
-    const cells = groups.map(([date]) => {
-      const evs = eventsAt(date, h);
-      const bg = dayBg(date);
-      const clickAttr = canEdit ? `onclick="selectDateHour('${date}','${hh}:00')" class="cursor-pointer border-r border-gray-100 last:border-r-0 px-2 py-1 align-top ${bg} hover:bg-blue-50/40 transition"` : `class="border-r border-gray-100 last:border-r-0 px-2 py-1 align-top ${bg}"`;
-      return `<td ${clickAttr}>${evs.map(eventCardHtml).join('')}</td>`;
+  // ── 日付カラム ──
+  const dateCols = dates.map((date, i) => {
+    const bg = dayBg(date);
+    // ヘッダー
+    const header = `
+      <div class="border-b border-gray-200 px-3 py-2 ${bg} ${canEdit ? 'cursor-pointer group' : ''} select-none"
+           style="height:${HEADER_PX}px;" ${canEdit ? `onclick="selectDate('${date}')"` : ''}>
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="text-xs font-bold text-blue-600">${i + 1}日目</div>
+            <div class="text-sm font-bold text-gray-700 ${canEdit ? 'group-hover:text-blue-600' : ''}">${formatDate(date)}</div>
+          </div>
+          ${canEdit ? `<button onclick="deleteColumn('${date}', event)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-sm leading-none no-print" title="この列を削除">✕</button>` : ''}
+        </div>
+      </div>`;
+
+    // 食事スロット
+    const meals = MEAL_SLOTS.map(m => {
+      const inner = canEdit ? mealSelectHtml(date, m.key) : mealDisplayHtml(date, m.key);
+      return `<div class="flex items-center border-b border-orange-100 px-1.5 bg-orange-50/40 ${bg}" style="height:${MEAL_PX}px;">${inner}</div>`;
     }).join('');
-    hourRows += `<tr class="border-t border-gray-100">${labelCell}${cells}</tr>`;
-  }
+
+    // 時刻未定
+    let untimed = '';
+    if (hasUntimed) {
+      const evs = currentEvents.filter(e => e.date === date && !e.start_time);
+      const blocks = evs.map(e => {
+        const accent = e.kind === 'meal' ? 'bg-orange-100 border-orange-400' : 'bg-blue-100 border-blue-400';
+        const clk = canEdit ? `onclick="event.stopPropagation();editEvent('${e.id}')"` : '';
+        return `<span class="inline-block rounded border-l-4 ${accent} px-1 text-xs mr-1 mb-1 ${canEdit ? 'cursor-pointer' : ''}" ${clk}>${kindIcon(e)}${escapeHtml(e.description)}</span>`;
+      }).join('');
+      untimed = `<div class="border-b border-gray-200 px-1.5 py-1 overflow-y-auto ${bg}" style="height:${UNTIMED_PX}px;">${blocks}</div>`;
+    }
+
+    // タイムグリッド（背景の時間線＋絶対配置イベント）
+    let gridLines = '';
+    for (let h = firstHour; h <= lastHour; h++) {
+      const hh = String(h).padStart(2, '0');
+      const clk = canEdit ? `onclick="selectDateHour('${date}','${hh}:00')"` : '';
+      gridLines += `<div class="border-t border-gray-100 ${canEdit ? 'cursor-pointer hover:bg-blue-50/40' : ''}" style="height:${HOUR_PX}px;" ${clk}></div>`;
+    }
+    const dayEvents = currentEvents.filter(e => e.date === date && e.start_time);
+    const blocks = layoutDay(dayEvents).map(eventBlockHtml).join('');
+    const grid = `<div class="relative ${bg}" style="height:${gridH}px;">${gridLines}<div class="absolute inset-0">${blocks}</div></div>`;
+
+    return `<div class="flex-shrink-0 border-r border-gray-200" style="width:${COL_W}px;">${header}${meals}${untimed}${grid}</div>`;
+  }).join('');
 
   container.innerHTML = `
     <div class="bg-white rounded-xl shadow overflow-x-auto">
-      <table class="text-sm border-collapse w-full">
-        <thead>
-          <tr class="bg-gray-50 border-b border-gray-200">${cornerTh}${headerCells}</tr>
-        </thead>
-        <tbody>
-          ${mealRows}
-          ${untimedRow}
-          ${hourRows}
-        </tbody>
-      </table>
+      <div class="flex min-w-max">
+        ${axisCol}
+        ${dateCols}
+      </div>
     </div>`;
 }
 
