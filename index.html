@@ -1189,15 +1189,19 @@ function mealDisplayHtml(date, slot) {
 // 呼ぶと認証ロックを保持したままになりデッドロックする。setTimeout で
 // コールバックの外に逃がして実行する（Supabase 公式の推奨パターン）。
 let lastUserId = null;
+let hasNavigated = false; // 初回の画面遷移を済ませたか
 sb.auth.onAuthStateChange((event, session) => {
   if (session && session.user) {
-    // 同じユーザーの TOKEN_REFRESHED 等で画面を再読み込みしない
-    if (session.user.id === lastUserId && event !== 'SIGNED_IN') return;
+    currentUser = session.user; // トークン更新時もユーザー情報は最新化
+    // 既にログイン済みで画面遷移済みなら、ウィンドウ切替や
+    // TOKEN_REFRESHED / 再 SIGNED_IN で画面を動かさない。
+    if (hasNavigated && session.user.id === lastUserId) return;
     lastUserId = session.user.id;
-    currentUser = session.user;
+    hasNavigated = true;
     setTimeout(() => { loadTrips(); }, 0);
   } else {
     lastUserId = null;
+    hasNavigated = false;
     currentUser = null;
     setTimeout(() => { showScreen('screen-auth'); }, 0);
   }
