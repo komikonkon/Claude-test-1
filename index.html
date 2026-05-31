@@ -926,13 +926,21 @@ async function removeShare(shareId) {
 // ══════════════════════════════════════════════════
 // Bootstrap — listen to auth state changes
 // ══════════════════════════════════════════════════
-sb.auth.onAuthStateChange(async (event, session) => {
+// 重要: onAuthStateChange のコールバック内で直接 await して Supabase を
+// 呼ぶと認証ロックを保持したままになりデッドロックする。setTimeout で
+// コールバックの外に逃がして実行する（Supabase 公式の推奨パターン）。
+let lastUserId = null;
+sb.auth.onAuthStateChange((event, session) => {
   if (session && session.user) {
+    // 同じユーザーの TOKEN_REFRESHED 等で画面を再読み込みしない
+    if (session.user.id === lastUserId && event !== 'SIGNED_IN') return;
+    lastUserId = session.user.id;
     currentUser = session.user;
-    await loadTrips();
+    setTimeout(() => { loadTrips(); }, 0);
   } else {
+    lastUserId = null;
     currentUser = null;
-    showScreen('screen-auth');
+    setTimeout(() => { showScreen('screen-auth'); }, 0);
   }
 });
 </script>
