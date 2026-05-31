@@ -255,8 +255,9 @@ function toggleAuthMode() {
 }
 
 // ログインID → 内部メールに変換（Supabase Auth はメール必須のため）
+// .local は Supabase に拒否されるため通常の TLD を使う
 function usernameToEmail(username) {
-  return username.toLowerCase() + '@travel-app.local';
+  return username.toLowerCase() + '@travel-app.example.com';
 }
 
 async function authSubmit() {
@@ -326,7 +327,7 @@ async function loadTrips() {
   showScreen('screen-trips');
   // ユーザー名を表示（メタデータ→なければメールからID部分を取り出す）
   const username = currentUser.user_metadata?.username
-    || currentUser.email?.replace('@travel-app.local', '')
+    || currentUser.email?.replace(/@travel-app\.(example\.com|local)$/, '')
     || '';
   document.getElementById('user-email-label').textContent = username ? username + ' さん' : '';
 
