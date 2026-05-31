@@ -63,7 +63,7 @@
       <h1 class="text-2xl font-bold text-gray-800">旅程表</h1>
       <div class="flex items-center gap-2">
         <span id="user-email-label" class="text-xs text-gray-400 hidden sm:block"></span>
-        <button onclick="openFoodScreen('trips')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">🍽 食べ物マスタ</button>
+        <button onclick="openFoodScreen('trips')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">📋 マスタ</button>
         <button onclick="logout()" class="px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">ログアウト</button>
       </div>
     </div>
@@ -99,7 +99,7 @@
         ← 旅一覧
       </button>
       <div class="flex gap-2">
-        <button onclick="openFoodScreen('detail')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">🍽 食べ物</button>
+        <button onclick="openFoodScreen('detail')" class="px-3 py-1.5 text-sm bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition">📋 マスタ</button>
         <button onclick="openShareModal()" class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition">共有</button>
         <button onclick="window.print()" class="px-3 py-1.5 text-sm bg-gray-800 text-white rounded hover:bg-gray-700 transition">印刷 / PDF</button>
         <button onclick="deleteTrip()" class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded hover:bg-red-100 transition">削除</button>
@@ -162,6 +162,8 @@
           <input id="eventDesc" type="text" placeholder="例: 東京駅 出発（新幹線）／ 昼食：一蘭ラーメン"
             class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             onkeydown="if(event.key==='Enter') addEvent()" />
+          <!-- 予定候補サジェスト（📍予定選択時のみ表示） -->
+          <div id="plan-suggestions" class="hidden flex-wrap gap-1 mt-2"></div>
         </div>
       </div>
       <div class="flex justify-end mt-3">
@@ -175,7 +177,7 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════
-     SCREEN: Food master
+     SCREEN: Master (food + plan items)
 ═══════════════════════════════════════════════════ -->
 <div id="screen-food" class="hidden min-h-screen p-4">
   <div class="max-w-lg mx-auto">
@@ -183,24 +185,36 @@
       <button onclick="closeFoodScreen()" class="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition">
         ← 戻る
       </button>
-      <h1 class="text-xl font-bold text-gray-800">🍽 食べ物マスタ</h1>
+      <h1 class="text-xl font-bold text-gray-800">マスタ管理</h1>
       <div class="w-16"></div>
     </div>
 
+    <!-- 食べ物マスタ -->
     <div class="bg-white rounded-xl shadow p-4 mb-4">
-      <h2 class="text-sm font-semibold text-gray-600 mb-3">食べ物を追加</h2>
-      <div class="flex gap-2">
+      <h2 class="text-sm font-semibold text-orange-600 mb-3">📋 マスタ</h2>
+      <div class="flex gap-2 mb-2">
         <input id="new-food-name" type="text" placeholder="例: 一蘭ラーメン"
           class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           onkeydown="if(event.key==='Enter') addFoodItem()" />
         <button onclick="addFoodItem()" class="px-4 py-2 bg-orange-500 text-white rounded text-sm hover:bg-orange-600 transition font-medium">追加</button>
       </div>
-      <div id="food-error" class="hidden mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+      <div id="food-error" class="hidden mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+      <div id="food-items-list" class="space-y-1.5">
+        <div class="text-gray-400 text-sm text-center py-4">読み込み中…</div>
+      </div>
     </div>
 
+    <!-- 予定候補マスタ -->
     <div class="bg-white rounded-xl shadow p-4">
-      <h2 class="text-sm font-semibold text-gray-600 mb-3">食べ物リスト</h2>
-      <div id="food-items-list" class="space-y-1.5">
+      <h2 class="text-sm font-semibold text-blue-600 mb-3">📍 予定候補</h2>
+      <div class="flex gap-2 mb-2">
+        <input id="new-plan-name" type="text" placeholder="例: ビーバー鑑賞"
+          class="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          onkeydown="if(event.key==='Enter') addPlanItem()" />
+        <button onclick="addPlanItem()" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition font-medium">追加</button>
+      </div>
+      <div id="plan-error" class="hidden mb-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2"></div>
+      <div id="plan-items-list" class="space-y-1.5">
         <div class="text-gray-400 text-sm text-center py-4">読み込み中…</div>
       </div>
     </div>
@@ -282,6 +296,7 @@ let canEdit          = false;  // edit permission flag
 let editingId        = null;   // uuid of event being edited
 let selectedKind     = 'plan'; // 'plan' | 'meal'
 let foodItems        = [];     // food_items rows for current user
+let planItems        = [];     // plan_items rows for current user
 let mealAssignments  = [];     // meal_assignments rows for current trip
 let foodScreenFrom   = 'trips'; // which screen to return to from food master
 
@@ -296,6 +311,11 @@ const DEFAULT_FOODS = [
   '冷麺', '湯葉', '漬物', 'トマトラーメン', '焼き魚', 'ローストビーフ丼',
   '卵かけご飯', 'ネギサラダ', 'いきなりステーキ', '焼き鳥', 'ファミチキ',
   '屋台の焼きそば', 'キムチきゅうり', 'きゅうりの一本漬け',
+];
+
+const DEFAULT_PLANS = [
+  'ビーバー鑑賞',
+  '嵐ラストライブ鑑賞',
 ];
 
 // ══════════════════════════════════════════════════
@@ -589,11 +609,10 @@ async function openTrip(tripId) {
   mealAssignments = [];
   render();
 
-  // 食べ物・食事割り当ては任意機能。読み込めたら再描画する。
-  // テーブル未作成でも上の render() で旅程表は表示済みなので影響しない。
-  Promise.all([loadFoodItems(), loadMealAssignments()])
-    .then(() => render())
-    .catch(err => console.warn('food/meal load skipped:', err));
+  // 食べ物・予定候補・食事割り当ては任意機能。読み込めたら再描画する。
+  Promise.all([loadFoodItems(), loadPlanItems(), loadMealAssignments()])
+    .then(() => { render(); updatePlanSuggestions(); })
+    .catch(err => console.warn('master/meal load skipped:', err));
 }
 
 function goToTrips() {
@@ -654,6 +673,7 @@ function clearDateRange() {
 function setKind(kind) {
   selectedKind = kind;
   updateKindButtons();
+  updatePlanSuggestions();
 }
 
 function updateKindButtons() {
@@ -1181,7 +1201,10 @@ function renderFoodList() {
 function openFoodScreen(from) {
   foodScreenFrom = from || 'trips';
   showScreen('screen-food');
-  loadFoodItems().then(() => renderFoodList());
+  Promise.all([
+    loadFoodItems().then(() => renderFoodList()),
+    loadPlanItems().then(() => renderPlanList()),
+  ]);
 }
 
 function closeFoodScreen() {
@@ -1218,12 +1241,92 @@ async function deleteFoodItem(id) {
   const { error } = await sb.from('food_items').delete().eq('id', id);
   if (error) { alert(error.message); return; }
   foodItems = foodItems.filter(f => f.id !== id);
-  // Also clear meal assignments that used this item
   mealAssignments = mealAssignments.map(a =>
     a.food_item_id === id ? { ...a, food_item_id: null } : a
   );
   renderFoodList();
   if (foodScreenFrom === 'detail') render();
+}
+
+// ══════════════════════════════════════════════════
+// Plan item master
+// ══════════════════════════════════════════════════
+
+async function loadPlanItems() {
+  const { data, error } = await sb
+    .from('plan_items')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .order('created_at');
+  if (error) { console.warn('plan_items load skipped:', error.message); planItems = []; return; }
+  planItems = data || [];
+  if (planItems.length === 0) {
+    const inserts = DEFAULT_PLANS.map(name => ({ user_id: currentUser.id, name }));
+    const { data: inserted, error: ie } = await sb.from('plan_items').insert(inserts).select();
+    if (!ie) planItems = inserted || [];
+  }
+}
+
+function renderPlanList() {
+  const el = document.getElementById('plan-items-list');
+  if (!el) return;
+  if (planItems.length === 0) {
+    el.innerHTML = '<div class="text-gray-400 text-sm text-center py-4">予定候補が登録されていません。</div>';
+    return;
+  }
+  el.innerHTML = planItems.map(p => `
+    <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-blue-50 border border-blue-100">
+      <span class="text-sm text-gray-800">${escapeHtml(p.name)}</span>
+      <button onclick="deletePlanItem('${p.id}')" class="text-gray-400 hover:text-red-500 transition text-xs ml-3">✕</button>
+    </div>`).join('');
+}
+
+// イベントフォームの予定候補サジェストを更新する
+function updatePlanSuggestions() {
+  const el = document.getElementById('plan-suggestions');
+  if (!el) return;
+  if (selectedKind !== 'plan' || planItems.length === 0) {
+    el.classList.add('hidden');
+    el.classList.remove('flex');
+    return;
+  }
+  el.innerHTML = planItems.map(p =>
+    `<button type="button" onclick="applyPlanSuggestion('${escapeHtml(p.name).replace(/'/g, "&#39;")}')"
+      class="text-xs px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">${escapeHtml(p.name)}</button>`
+  ).join('');
+  el.classList.remove('hidden');
+  el.classList.add('flex');
+}
+
+function applyPlanSuggestion(name) {
+  document.getElementById('eventDesc').value = name;
+  document.getElementById('eventDesc').focus();
+}
+
+async function addPlanItem() {
+  const input = document.getElementById('new-plan-name');
+  const name = input.value.trim();
+  const errEl = document.getElementById('plan-error');
+  errEl.classList.add('hidden');
+  if (!name) { input.focus(); return; }
+  const { data, error } = await sb
+    .from('plan_items')
+    .insert({ user_id: currentUser.id, name })
+    .select()
+    .single();
+  if (error) { errEl.textContent = error.message; errEl.classList.remove('hidden'); return; }
+  planItems.push(data);
+  input.value = '';
+  renderPlanList();
+  updatePlanSuggestions();
+}
+
+async function deletePlanItem(id) {
+  const { error } = await sb.from('plan_items').delete().eq('id', id);
+  if (error) { alert(error.message); return; }
+  planItems = planItems.filter(p => p.id !== id);
+  renderPlanList();
+  updatePlanSuggestions();
 }
 
 // ══════════════════════════════════════════════════
